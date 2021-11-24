@@ -1,7 +1,11 @@
 # Blender-Anno-.cfg-Import-Addon
-Parses Anno (1800) .cfg files and automatically imports and positions all models, props, particles and decals in the scene.
+Parses Anno (1800) .cfg files and automatically imports and positions all models, props, particles, subfiles and decals in the scene.
 When available, the corresponding .glb file is used, otherwise a named empty serves as placeholder.
 If the necessary textures can be found in .png format, they are used for the material.
+
+# What this addon can and cannot do
+- It can load .cfg files, allowing you to quickly check if you are happy with the .cfg file without going into the game itself.
+- It cannot save your scene to .cfg files. 
 
 # Installation
 1. Put the python file into your blender addon directory (for example `C:\Program Files\Blender Foundation\Blender X.YZ\X.YZ\scripts\addons`).
