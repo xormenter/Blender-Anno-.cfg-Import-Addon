@@ -334,8 +334,9 @@ When available, the corresponding .glb file is used, otherwise a named empty ser
         collection = get_collection(collectionName)
         if (container.find("OrientationTransform")):
             print("Found Orientation Transform, currently ignored for PropContainers because I didn't find an example file.")
-        for prop in container.find("Props"):
-            self.parse_prop(prop, collection, parentObj)
+        if container.find("Props") is not None:
+            for prop in container.find("Props"):
+                self.parse_prop(prop, collection, parentObj)
 
     def parse_model(self, model, parentObj = None):
         transform = Transform.from_transformer_node(model.find("Transformer/Config"))
@@ -393,6 +394,8 @@ When available, the corresponding .glb file is used, otherwise a named empty ser
             return
         tree = ET.parse(filePath)
         root = tree.getroot()
+        if root is None:
+            return 
         for child in root:
             if (child.tag == 'PropContainers') and self.load_props:
                 for container in child:
