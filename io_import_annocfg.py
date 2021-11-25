@@ -8,7 +8,7 @@ If the necessary textures can be found in .png format, they are used for the mat
 import bpy
 bl_info = {
     "name": "Annocfg",
-    "version": (1, 0),
+    "version": (1, 1),
     "blender": (2, 93, 0),
     "category": "Import-Export",
 }
@@ -31,14 +31,32 @@ class ImportAnnoCfgPreferences(AddonPreferences):
         subtype='FILE_PATH',
         default = "",
     )
+    path_to_rdm4 : StringProperty(
+        name = "Path to rdm4-bin.exe",
+        description = "Path to the rdm4 converter.",
+        subtype='FILE_PATH',
+        default = "C:\\tools\\rdm4-bin.exe",
+    )
+    path_to_texconv : StringProperty(
+        name = "Path to texconv.exe",
+        description = "Path to the texconv tool used to convert .dds to .png.",
+        subtype='FILE_PATH',
+        default = "C:\\Users\\Public\\texconv.exe",
+    )
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Path Properties")
+        layout.label(text="Paths")
         layout.prop(self, "path_to_rda_folder")
+        layout.prop(self, "path_to_rdm4")
+        layout.prop(self, "path_to_texconv")
+
+def preferences():
+    return bpy.context.preferences.addons[__name__].preferences
+    
 
 def get_full_path(p):
-    return os.path.join(bpy.context.preferences.addons[__name__].preferences.path_to_rda_folder, p)
+    return os.path.join(preferences().path_to_rda_folder, p)
 
 def change_extension(p, new_extension):
     return os.path.splitext(p)[0] + new_extension
@@ -78,12 +96,26 @@ def get_collection(collectionName):
 def get_image(texture_path):
     if (texture_path is None):
         return None
-    image = bpy.data.images.get(texture_path, None)
+    print("\n\n")
+    texture_path = change_extension(texture_path, "_0.dds")
+    png_file = change_extension(texture_path, ".png")
+    image = bpy.data.images.get(png_file, None)
     if image is not None:
         return image
-    elif (os.path.exists(get_full_path(texture_path))):
-            image = bpy.data.images.load(get_full_path(texture_path))
-            return image
+    fullpath = get_full_path(texture_path)
+    png_fullpath = get_full_path(png_file)
+    if os.path.exists(png_fullpath):
+        image = bpy.data.images.load(png_fullpath)
+        return image
+    if os.path.exists(preferences().path_to_texconv):
+        if os.path.exists(fullpath):
+            subprocess.call(f"\"{preferences().path_to_texconv}\" -ft PNG -sepalpha -y -o \"{preferences().path_to_rda_folder}\" \"{fullpath}\"")
+            if os.path.exists(png_fullpath):
+                image = bpy.data.images.load(png_fullpath)
+                return image
+            else:
+                print("Warning: Conversion to png failed", png_fullpath)
+                return None
     print("Warning: Cannot find image: ", texture_path, "\n")
     return None
 
@@ -156,13 +188,13 @@ class Material:
             self.name = name_node.text
         if material_node.find("cModelDiffTex") is not None:
             print("found diff path")
-            diff_path = change_extension(material_node.find("cModelDiffTex").text, "_0.png")
+            diff_path = material_node.find("cModelDiffTex").text
             self.diff_path = diff_path
         if material_node.find("cModelNormalTex") is not None:
-            norm_path = change_extension(material_node.find("cModelNormalTex").text, "_0.png")
+            norm_path = material_node.find("cModelNormalTex").text
             self.norm_path = norm_path
         if material_node.find("cModelMetallicTex") is not None:
-            metal_path = change_extension(material_node.find("cModelMetallicTex").text, "_0.png")
+            metal_path = material_node.find("cModelMetallicTex").text
             self.metal_path = metal_path
         return self
     @classmethod
@@ -170,11 +202,11 @@ class Material:
         self = Material()
         self.name = name
         if diff_path:
-            self.diff_path = change_extension(diff_path, "_0.png")
+            self.diff_path = diff_path
         if norm_path: 
-            self.norm_path = change_extension(norm_path, "_0.png")
+            self.norm_path = norm_path
         if metal_path:
-            self.metal_path = change_extension(metal_path, "_0.png")
+            self.metal_path = metal_path
         return self
 
     def get_material_cache_key(self):
@@ -223,6 +255,7 @@ class Material:
             rgbToBW = material.node_tree.nodes.new("ShaderNodeRGBToBW")
             material.node_tree.links.new(rgbToBW.inputs["Color"], texImage_metal.outputs['Color'])
             material.node_tree.links.new(bsdf.inputs['Metallic'], rgbToBW.outputs['Val'])
+        material.blend_method = "CLIP"
         Material.materialCache[self.get_material_cache_key()] = material
         return material
     
@@ -276,6 +309,11 @@ When available, the corresponding .glb file is used, otherwise a named empty ser
         description="Load Particles",
         default=True,
     )
+    auto_convert_rdm: BoolProperty(
+        name="Auto Convert to .glb",
+        description="Automatically converts all required .rdm models to .glb (if they haven't been converted already)",
+        default=True,
+    )
 
     def __init__(self):
         self.loadedFiles = []
@@ -306,6 +344,8 @@ When available, the corresponding .glb file is used, otherwise a named empty ser
     def parse_prop(self, prop, collection, parentObj = None):
         name = parse_name(prop)
         propFilePath = prop.find("FileName").text
+        if propFilePath is None:
+            return
         transform = Transform.from_transformer_node(prop)
         if self.load_prop_models:
             if has_file_type(propFilePath,'.prp'):
@@ -319,6 +359,8 @@ When available, the corresponding .glb file is used, otherwise a named empty ser
     def parse_particle(self, particle, collection, parentObj = None):
         name = parse_name(particle)
         fileName = particle.find("FileName").text
+        if fileName is None:
+            return
         position = (0,0,0)
         rotation = (1,0,0,0)
         scale = (1,1,1)
@@ -381,7 +423,9 @@ When available, the corresponding .glb file is used, otherwise a named empty ser
     def parse_included_file(self, file, parentObj = None):
         transform = Transform.from_transformer_node(file.find("Transformer/Config"))
         fileName = file.find("FileName").text
-        if (os.path.exists(get_full_path(fileName))):
+        if fileName is None:
+            return
+        if os.path.exists(get_full_path(fileName)):
             file_obj = self.add_named_empty("FILE_"+get_file_basename(fileName), transform, None, parentObj, "ARROWS")
             self.parse_cfg_file(get_full_path(fileName), file_obj)
         else:
@@ -426,6 +470,17 @@ When available, the corresponding .glb file is used, otherwise a named empty ser
                 collection.objects.link(o)
             return o
 
+    """converts the file rdm file at fullpath to glb, if it isn't already converted and the settings allow it"""
+    def convertRdmToGlb(self, fullpath):
+        if not self.auto_convert_rdm or not os.path.exists(preferences().path_to_rdm4):
+            return
+        fullpath_glb = change_extension(fullpath, ".glb")
+        if os.path.exists(fullpath_glb):
+            return
+        if os.path.exists(fullpath) and has_file_type(fullpath, ".rdm"):
+            subprocess.call(f"\"{preferences().path_to_rdm4}\" --input \"{fullpath}\" -n --outdst \"{os.path.dirname(fullpath)}\"", shell = True)
+
+
     """
     Imports the model located at datapath. Regardless of file ending, it looks for the .glb file. 
     If no such file can be found, an empty is created instead.
@@ -434,7 +489,11 @@ When available, the corresponding .glb file is used, otherwise a named empty ser
     If no name is given, the object will be named after its file.
     """
     def import_GLFT(self, datapath, transform, materials, name = None, collection = None, parentObject = None):
+        if datapath is None:
+            print("Missing Datapath with name", name)
+            return 
         fullpath = get_full_path(datapath)
+        self.convertRdmToGlb(fullpath)
         fullpath_glb = change_extension(fullpath, ".glb")
         fn = get_file_basename(datapath)
         
