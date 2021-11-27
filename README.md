@@ -9,7 +9,7 @@ Blender (tested with 2.93)
 To use the automatic .rdm -> .glb and .dds -> .png conversion (optional), you need:
 - rdm4 converter https://github.com/lukts30/rdm4
 - texconv.exe https://github.com/microsoft/DirectXTex
-- .fc Converter https://github.com/taubenangriff/AnnoFCConverter/ (not yet automatic)
+- .fc Converter https://github.com/anno-mods/FileDBReader (not yet automatic)
 
 
 # Installation
