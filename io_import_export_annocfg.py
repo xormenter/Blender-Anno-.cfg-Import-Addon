@@ -121,7 +121,7 @@ def ensure_unique_identifiers_in_subtree(node, unique_namer):
 
 def prepare_cfg_file_unique_names(file_path):
         if not file_path.exists():
-            self.report({'INFO'}, f"Cannot find {file_path}")
+            print(f"Cannot find {file_path}")
             return
         tree = ET.parse(file_path)
         root = tree.getroot()
@@ -323,9 +323,9 @@ def get_image(texture_path):
                 image = bpy.data.images.load(str(png_fullpath))
                 return image
             else:
-                self.report({'INFO'}, f"Warning: Conversion to png failed {png_fullpath} does not exist.")
+                print(f"Warning: Conversion to png failed {png_fullpath} does not exist.")
                 return None
-    self.report({'INFO'}, f"Warning: Cannot find image: {texture_path}")
+    print(f"Warning: Cannot find image: {texture_path}")
     return None
 
 
