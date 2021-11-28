@@ -109,7 +109,8 @@ def ensure_unique_identifiers_in_subtree(node, unique_namer):
         if name_node is None:
             name_node = ET.SubElement(node, "Name")
             name_node.text = ""
-        if (file_name := node.find("FileName")) is not None:
+        file_name = node.find("FileName")
+        if file_name is not None:
             ft = file_name.text
             if ft is None:
                 ft = ""
@@ -147,10 +148,10 @@ class Transform:
     """
     Parses an xml tree node for transform operations, stores them and can apply them to a blender object.
     """
-    def __init__(self):
-        self.location = (0,0,0)
-        self.rotation = (1,0,0,0)
-        self.scale = (1,1,1)
+    def __init__(self, loc = (0,0,0), rot = (1,0,0,0), sca = (1,1,1)):
+        self.location = loc
+        self.rotation = rot
+        self.scale = sca
 
 
 
@@ -287,7 +288,8 @@ class Material:
         #Store all kinds of properties for export
         if self.node is not None:
             for prop in material_properties():
-                if (value_node := self.node.find(prop)) is not None:
+                value_node = self.node.find(prop)
+                if value_node is not None:
                     material[prop] = value_node.text
 
 
@@ -468,11 +470,14 @@ class ExportAnnoCfg(Operator, ExportHelper):
         scale_node = node.find("Scale")
         if scale_node is not None:
             node.remove(scale_node)
-        if (scale_component := node.find("Scale.x")) is not None:
+        scale_component = node.find("Scale.x")
+        if scale_component is not None:
             node.remove(scale_component)
-        if (scale_component := node.find("Scale.y")) is not None:
+        scale_component = node.find("Scale.y")
+        if scale_component is not None:
             node.remove(scale_component)
-        if (scale_component := node.find("Scale.z")) is not None:
+        scale_component = node.find("Scale.z")
+        if scale_component is not None:
             node.remove(scale_component)
 
         self.find_or_create(node, "Position.x").text = self.format_float(obj.location[0])
@@ -854,9 +859,10 @@ class ImportAnnoCfg(Operator, ImportHelper):
         bpy.ops.object.empty_add(type=empty_type, align='WORLD', location = (0,0,0), scale = (1,1,1))
         for obj in bpy.context.selected_objects:
             obj.name = name
-            transform.apply_to(obj)
             if parent_object is not None:
                 obj.parent = parent_object
+            
+            transform.apply_to(obj)
             return obj
 
     def convert_to_glb(self, fullpath):
@@ -982,10 +988,7 @@ class ImportAnnoCfg(Operator, ImportHelper):
             name = self.get_text(node, "Name")
             if name == "": #idk what to do with unnamed dummies
                 return
-            obj = self.add_empty_to_scene("CF7DUMMY_"+name, Transform(), parent_object)
-            obj.location = loc
-            obj.scale = sca
-            obj.rotation_quaternion = rot
+            obj = self.add_empty_to_scene("CF7DUMMY_"+name, Transform(loc, rot, sca), parent_object, "ARROWS")
             return
         for subnode in list(node):
             self.import_cf7_object(subnode, parent_object)
@@ -1023,20 +1026,24 @@ class ImportAnnoCfg(Operator, ImportHelper):
         root = tree.getroot()
         if root is None:
             return
-        if (models := root.find("Models")) is not None:
+        models = root.find("Models")
+        if models is not None:
             for model in models:
                 self.import_model(model, file_obj)
-        if (prop_containers := root.find("PropContainers")) is not None:
+        prop_containers = root.find("PropContainers")
+        if prop_containers is not None:
             for prop_container in prop_containers:
                 self.import_prop_container(prop_container, file_obj)
-        if (particles := root.find("Particles")) is not None:
+        particles = root.find("Particles")
+        if particles is not None:
             for particle in particles:
                 self.import_particle(particle, file_obj)
-        if (decals := root.find("Decals")) is not None:
+        decals = root.find("Decals")
+        if decals is not None:
             for decal in decals:
                 self.import_decal(decal, file_obj)
-
-        if (files := root.find("Files")) is not None:
+        files = root.find("Files")
+        if files is not None:
             for file in files:
                 self.import_subfile(file, file_obj)
         return file_obj
@@ -1051,7 +1058,8 @@ class ImportAnnoCfg(Operator, ImportHelper):
         return Transform()
     # Saves the value of node.find(query) in the blender object as a custom property. 
     def save_as_custom_property(self, node, query, blender_object):
-        if (value_node := node.find(query)) is not None:
+        value_node = node.find(query)
+        if value_node is not None:
             blender_object[query] = value_node.text
 
     def import_model(self, node, parent_object):
@@ -1072,7 +1080,8 @@ class ImportAnnoCfg(Operator, ImportHelper):
         transform = self.get_transform_from_transformer_child(node)
         name = self.get_text(node, "Name")
         prop_container_obj = self.add_empty_to_scene(name, transform, parent_object)
-        if (props := node.find("Props")) is not None:
+        props = node.find("Props")
+        if props is not None:
             for prop in props:
                 self.import_prop(prop, prop_container_obj)
         for attribute in prop_container_properties():
