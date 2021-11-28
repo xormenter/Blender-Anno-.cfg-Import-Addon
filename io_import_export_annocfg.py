@@ -9,7 +9,7 @@ Also capable of importing/exporting corresponding .ifo and .cf7 (converted from 
 import bpy
 bl_info = {
     "name": "ImportExportAnnoCfg",
-    "version": (1, 5),
+    "version": (1, 6),
     "blender": (2, 93, 0),
     "category": "Import-Export",
 }
@@ -192,6 +192,7 @@ class Transform:
         return self
     def apply_to(self, object):
         object.location = self.location
+        object.rotation_mode = "QUATERNION"
         object.rotation_quaternion = self.rotation
         object.scale = self.scale
         
@@ -911,6 +912,7 @@ class ImportAnnoCfg(Operator, ImportHelper):
         bpy.ops.mesh.primitive_cube_add(location=loc)
         obj = bpy.context.active_object
         obj.display_type = 'WIRE'
+        obj.rotation_mode = "QUATERNION"
         obj.rotation_quaternion = rot
         obj.scale = sca
         obj.name = name
