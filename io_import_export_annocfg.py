@@ -584,6 +584,7 @@ class ExportAnnoCfg(Operator, ExportHelper):
         self.find_or_create(node, "ConfigType").text = "MODEL"
         self.find_or_create(node, "Name").text = obj.name
         self.export_transform_to_orientation_transform_node(obj, node)
+        self.add_properties(obj, node)
         materials_node = node.find("Materials")
         if materials_node:
             node.remove(materials_node)
