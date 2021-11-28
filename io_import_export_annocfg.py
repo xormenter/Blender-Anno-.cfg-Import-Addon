@@ -148,12 +148,29 @@ class Transform:
     """
     Parses an xml tree node for transform operations, stores them and can apply them to a blender object.
     """
-    def __init__(self, loc = (0,0,0), rot = (1,0,0,0), sca = (1,1,1)):
+    def __init__(self, loc = (0,0,0), rot = (1,0,0,0), sca = (1,1,1), anno_coords = True):
         self.location = loc
         self.rotation = rot
         self.scale = sca
+        self.anno_coords = anno_coords
 
 
+    def convert_to_blender_coords(self):
+        if not self.anno_coords:
+            return
+        self.location = (-self.location[0], -self.location[2], self.location[1])
+        self.rotation = (self.rotation[0], self.rotation[1], self.rotation[3], -self.rotation[2])
+        self.scale = (self.scale[0], self.scale[2], self.scale[1])
+        self.anno_coords = False
+
+    def convert_to_anno_coords(self):
+        if self.anno_coords:
+            return      
+        self.location = (-self.location[0], self.location[2], -self.location[1])
+        self.rotation = (self.rotation[0], self.rotation[1], -self.rotation[3], self.rotation[2])
+        self.scale = (self.scale[0], self.scale[2], self.scale[1])
+        self.anno_coords = True
+        
 
     def parse_position(self, node):
         x = parse_float_node(node, "Position.x")
@@ -161,15 +178,15 @@ class Transform:
         z = parse_float_node(node, "Position.z")
         if parse_float_node(node, "Position", None) is not None:
             value = parse_float_node(node, "Position")
-            return (value, -value, value)
-        return (x, -z, y)
+            return (value, value, value)
+        return (x, y, z)
 
     def parse_rotation(self, node):
         x = parse_float_node(node, "Rotation.x")
         y = parse_float_node(node, "Rotation.y")
         z = parse_float_node(node, "Rotation.z")
         w = parse_float_node(node, "Rotation.w", 1.0)
-        return (w,x, z, y)
+        return (w,x, y, z)
     
 
     def parse_scale(self, node):
@@ -179,8 +196,24 @@ class Transform:
         if parse_float_node(node, "Scale", None) is not None:
             value = parse_float_node(node, "Scale")
             return (value, value, value)
-        return (x, z, y)
+        return (x, y, z)
+    
+    def mirror_mesh(self, object):
+        if not object.data:
+            return
+        for v in object.data.vertices:
+            v.co.x *= -1.0
+    
+    def apply_to(self, object):
+        if self.anno_coords:
+            self.convert_to_blender_coords()
+        self.mirror_mesh(object)
+        object.location = self.location
+        object.rotation_mode = "QUATERNION"
+        object.rotation_quaternion = self.rotation
+        object.scale = self.scale
 
+    
     @classmethod
     def from_transformer_node(cls, transformer_node):
         self = Transform()
@@ -189,12 +222,9 @@ class Transform:
         self.location = self.parse_position(transformer_node)
         self.rotation = self.parse_rotation(transformer_node)
         self.scale = self.parse_scale(transformer_node)
+        self.anno_coords = True
         return self
-    def apply_to(self, object):
-        object.location = self.location
-        object.rotation_mode = "QUATERNION"
-        object.rotation_quaternion = self.rotation
-        object.scale = self.scale
+
         
 
 class Material:
@@ -362,6 +392,10 @@ def particle_properties():
 def ifo_data_properties(tag):
     return {"Sequence":["Id", "Duration", "Looped", "Speed"]}[tag]
 
+def cf7_dummy_properties():
+    return ["HeightAdaptationMode"]
+
+
 def ifo_empty_objects():
     return ["Sequence"]
 
@@ -481,18 +515,20 @@ class ExportAnnoCfg(Operator, ExportHelper):
         if scale_component is not None:
             node.remove(scale_component)
 
-        self.find_or_create(node, "Position.x").text = self.format_float(obj.location[0])
-        self.find_or_create(node, "Position.y").text = self.format_float(obj.location[2])
-        self.find_or_create(node, "Position.z").text = self.format_float(-obj.location[1]) #blender y is inverted
+        transform = Transform(obj.location, obj.rotation_quaternion, obj.scale, anno_coords = False)
+        transform.convert_to_anno_coords()
+        self.find_or_create(node, "Position.x").text = self.format_float(transform.location[0])
+        self.find_or_create(node, "Position.y").text = self.format_float(transform.location[1])
+        self.find_or_create(node, "Position.z").text = self.format_float(transform.location[2]) #blender y is inverted
 
-        self.find_or_create(node, "Rotation.x").text = self.format_float(obj.rotation_quaternion[1])
-        self.find_or_create(node, "Rotation.y").text = self.format_float(obj.rotation_quaternion[3])
-        self.find_or_create(node, "Rotation.z").text = self.format_float(obj.rotation_quaternion[2])
-        self.find_or_create(node, "Rotation.w").text = self.format_float(obj.rotation_quaternion[0])
+        self.find_or_create(node, "Rotation.x").text = self.format_float(transform.rotation[1])
+        self.find_or_create(node, "Rotation.y").text = self.format_float(transform.rotation[2])
+        self.find_or_create(node, "Rotation.z").text = self.format_float(transform.rotation[3])
+        self.find_or_create(node, "Rotation.w").text = self.format_float(transform.rotation[0])
         if self.get_object_config_type(obj) in ["PROP"]: #which ones allow for xyz scale???
-            self.find_or_create(node, "Scale.x").text = self.format_float(obj.scale[0])
-            self.find_or_create(node, "Scale.y").text = self.format_float(obj.scale[2])
-            self.find_or_create(node, "Scale.z").text = self.format_float(obj.scale[1])
+            self.find_or_create(node, "Scale.x").text = self.format_float(transform.scale[0])
+            self.find_or_create(node, "Scale.y").text = self.format_float(transform.scale[1])
+            self.find_or_create(node, "Scale.z").text = self.format_float(transform.scale[2])
         else:
             scale_values = set([obj.scale[0], obj.scale[1], obj.scale[2]])
             if len(scale_values) > 1:
@@ -670,18 +706,21 @@ class ExportAnnoCfg(Operator, ExportHelper):
     def export_ifo_cube(self, obj, node):
         self.find_or_create(node, "Name").text = obj["Name"]
 
-        self.find_or_create(node, "Position/xf").text = self.format_float(obj.location[0])
-        self.find_or_create(node, "Position/yf").text = self.format_float(obj.location[2])
-        self.find_or_create(node, "Position/zf").text = self.format_float(-obj.location[1])
+        transform = Transform(obj.location, obj.rotation_quaternion, obj.scale, anno_coords = False)
+        transform.convert_to_anno_coords()
 
-        self.find_or_create(node, "Extents/xf").text = self.format_float(obj.scale[0])
-        self.find_or_create(node, "Extents/yf").text = self.format_float(obj.scale[2])
-        self.find_or_create(node, "Extents/zf").text = self.format_float(obj.scale[1])
+        self.find_or_create(node, "Position/xf").text = self.format_float(transform.location[0])
+        self.find_or_create(node, "Position/yf").text = self.format_float(transform.location[1])
+        self.find_or_create(node, "Position/zf").text = self.format_float(transform.location[2])
 
-        self.find_or_create(node, "Rotation/wf").text = self.format_float(obj.rotation_quaternion[0])
-        self.find_or_create(node, "Rotation/xf").text = self.format_float(obj.rotation_quaternion[1])
-        self.find_or_create(node, "Rotation/yf").text = self.format_float(obj.rotation_quaternion[3])
-        self.find_or_create(node, "Rotation/zf").text = self.format_float(obj.rotation_quaternion[2])
+        self.find_or_create(node, "Extents/xf").text = self.format_float(transform.scale[0])
+        self.find_or_create(node, "Extents/yf").text = self.format_float(transform.scale[1])
+        self.find_or_create(node, "Extents/zf").text = self.format_float(transform.scale[2])
+
+        self.find_or_create(node, "Rotation/wf").text = self.format_float(transform.rotation[0])
+        self.find_or_create(node, "Rotation/xf").text = self.format_float(transform.rotation[1])
+        self.find_or_create(node, "Rotation/yf").text = self.format_float(transform.rotation[2])
+        self.find_or_create(node, "Rotation/zf").text = self.format_float(transform.rotation[3])
     
     def export_ifo_plane(self, obj, node):
         if "Name" in obj.keys():
@@ -719,18 +758,23 @@ class ExportAnnoCfg(Operator, ExportHelper):
         if node is None:
             self.report({'INFO'}, f"Warning, detected new cf7 object. This is not supported. Ignoring {obj.name}")
             return
-        self.find_or_create(node, "Position/x").text = self.format_float(obj.location[0])
-        self.find_or_create(node, "Position/y").text = self.format_float(obj.location[2])
-        self.find_or_create(node, "Position/z").text = self.format_float(-obj.location[1])
+        transform = Transform(obj.location, obj.rotation_quaternion, obj.scale, anno_coords = False)
+        transform.convert_to_anno_coords()
+        
+        self.find_or_create(node, "Position/x").text = self.format_float(transform.location[0])
+        self.find_or_create(node, "Position/y").text = self.format_float(transform.location[1])
+        self.find_or_create(node, "Position/z").text = self.format_float(transform.location[2])
 
-        self.find_or_create(node, "Extents/x").text = self.format_float(obj.scale[0])
-        self.find_or_create(node, "Extents/y").text = self.format_float(obj.scale[2])
-        self.find_or_create(node, "Extents/z").text = self.format_float(obj.scale[1])
+        self.find_or_create(node, "Extents/x").text = self.format_float(transform.scale[0])
+        self.find_or_create(node, "Extents/y").text = self.format_float(transform.scale[1])
+        self.find_or_create(node, "Extents/z").text = self.format_float(transform.scale[2])
 
-        self.find_or_create(node, "Orientation/w").text = self.format_float(obj.rotation_quaternion[0])
-        self.find_or_create(node, "Orientation/x").text = self.format_float(obj.rotation_quaternion[1])
-        self.find_or_create(node, "Orientation/y").text = self.format_float(obj.rotation_quaternion[3])
-        self.find_or_create(node, "Orientation/z").text = self.format_float(obj.rotation_quaternion[2])
+        self.find_or_create(node, "Orientation/w").text = self.format_float(transform.rotation[0])
+        self.find_or_create(node, "Orientation/x").text = self.format_float(transform.rotation[1])
+        self.find_or_create(node, "Orientation/y").text = self.format_float(transform.rotation[2])
+        self.find_or_create(node, "Orientation/z").text = self.format_float(transform.rotation[3])
+
+        self.add_properties(obj, node)
 
     def get_cf7_node_by_name(self,cf7root, name):
         node =  cf7root.find(f".//i/[Name=\"{name}\"]")
@@ -907,16 +951,14 @@ class ImportAnnoCfg(Operator, ImportHelper):
 
 #######################################################################################################################
     def import_ifo_cube(self,name, node, parent_object): 
-        sca = (parse_float_node(node, "Extents/xf", 1.0), parse_float_node(node, "Extents/zf", 1.0), parse_float_node(node, "Extents/yf", 1.0))
-        loc = (parse_float_node(node, "Position/xf"), -parse_float_node(node, "Position/zf"), parse_float_node(node, "Position/yf"))
-        rot = (parse_float_node(node, "Rotation/wf"), parse_float_node(node, "Rotation/xf"), parse_float_node(node, "Rotation/zf"), parse_float_node(node, "Rotation/yf"))
-        bpy.ops.mesh.primitive_cube_add(location=loc)
+        sca = (parse_float_node(node, "Extents/xf", 1.0), parse_float_node(node, "Extents/yf", 1.0), parse_float_node(node, "Extents/zf", 1.0))
+        loc = (parse_float_node(node, "Position/xf"), parse_float_node(node, "Position/yf"), parse_float_node(node, "Position/zf"))
+        rot = (parse_float_node(node, "Rotation/wf"), parse_float_node(node, "Rotation/xf"), parse_float_node(node, "Rotation/yf"), parse_float_node(node, "Rotation/zf"))
+        bpy.ops.mesh.primitive_cube_add(location=(0,0,0))
         obj = bpy.context.active_object
         obj.display_type = 'WIRE'
-        obj.rotation_mode = "QUATERNION"
-        obj.rotation_quaternion = rot
-        obj.scale = sca
-        obj.name = name
+        transform = Transform(loc, rot, sca, anno_coords = True)
+        transform.apply_to(obj)
         if parent_object is not None: 
             obj.parent = parent_object
         obj["Tag"] = node.tag
@@ -985,13 +1027,15 @@ class ImportAnnoCfg(Operator, ImportHelper):
     def import_cf7_object(self, node, parent_object):
         if node.tag == 'i' and node.find("Position") is not None and node.find("Orientation") is not None and node.find("Extents") is not None:
             #this should be a node that defines a feedback dummy object
-            sca = (parse_float_node(node, "Extents/x", 1.0), parse_float_node(node, "Extents/z", 1.0), parse_float_node(node, "Extents/y", 1.0))
-            loc = (parse_float_node(node, "Position/x"), -parse_float_node(node, "Position/z"), parse_float_node(node, "Position/y"))
-            rot = (parse_float_node(node, "Orientation/w"), parse_float_node(node, "Orientation/x"), parse_float_node(node, "Orientation/z"), parse_float_node(node, "Orientation/y"))
+            sca = (parse_float_node(node, "Extents/x", 1.0), parse_float_node(node, "Extents/y", 1.0), parse_float_node(node, "Extents/z", 1.0))
+            loc = (parse_float_node(node, "Position/x"), parse_float_node(node, "Position/y"), parse_float_node(node, "Position/z"))
+            rot = (parse_float_node(node, "Orientation/w"), parse_float_node(node, "Orientation/x"), parse_float_node(node, "Orientation/y"), parse_float_node(node, "Orientation/z"))
             name = self.get_text(node, "Name")
             if name == "": #idk what to do with unnamed dummies
                 return
-            obj = self.add_empty_to_scene("CF7DUMMY_"+name, Transform(loc, rot, sca), parent_object, "ARROWS")
+            obj = self.add_empty_to_scene("CF7DUMMY_"+name, Transform(loc, rot, sca, anno_coords = True), parent_object, "ARROWS")
+            for attribute in cf7_dummy_properties():
+                self.save_as_custom_property(node, attribute, obj)
             return
         for subnode in list(node):
             self.import_cf7_object(subnode, parent_object)
