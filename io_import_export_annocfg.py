@@ -496,7 +496,7 @@ class ExportAnnoCfg(Operator, ExportHelper):
         for prop, value in obj.items():
             if prop in ["_RNA_UI"]: #weird properties that blender seems to do on its own.
                 continue
-            self.find_or_create(node, prop).text = value
+            self.find_or_create(node, prop).text = str(value)
 
     def format_float(self, value):
         return "{:.6f}".format(value)
@@ -642,7 +642,7 @@ class ExportAnnoCfg(Operator, ExportHelper):
         # self.find_or_create(node, "Name").text = obj.name
         extentx = node.find("Extents.x")
         if extentx is not None:
-            extentx.text = self.format_float(obj.scale[0])
+            extentx.text = self.format_float(-obj.scale[0])
         extenty = node.find("Extents.z")
         if extenty is not None:
             extenty.text = self.format_float(-obj.scale[1])
@@ -1208,7 +1208,7 @@ class ImportAnnoCfg(Operator, ImportHelper):
         #Why do we even have a value for the height???
         bpy.ops.mesh.primitive_plane_add(size=2, enter_editmode=False, align='WORLD', location=(0,0,0), scale=(1,1,1))
         obj = bpy.context.active_object
-        obj.scale[0] = x
+        obj.scale[0] = -x
         obj.scale[1] = -z
         if parent_object is not None:
             obj.parent = parent_object
