@@ -1,7 +1,7 @@
 # Blender-Anno-.cfg-Import/Export-Addon
 Allows you to import from Anno (1800) .cfg files, make changes and export it to .cfg again.
 Automatically positions all models, props, particles, decals, subfiles, ifo-blockers, and cf7 blockers in the scene.
-When used with the rdm4 converter and texconv, it will automatically convert .rdm to .glb and .dds to .png for importing.
+When used with the rdm4 converter and texconv, it will automatically convert .rdm to .glb and .dds to .png for importing. Same goes for .fc files and the AnnoFCConverter.
 Also capable of importing/exporting corresponding .ifo and .cf7 (converted from .fc) files.
 
 # Requirements
@@ -9,7 +9,7 @@ Blender (tested with 2.93)
 To use the automatic .rdm -> .glb and .dds -> .png conversion (optional), you need:
 - rdm4 converter https://github.com/lukts30/rdm4
 - texconv.exe https://github.com/microsoft/DirectXTex
-- .fc Converter https://github.com/anno-mods/FileDBReader (not yet automatic)
+- .fc Converter https://github.com/taubenangriff/AnnoFCConverter
 
 
 # Installation
@@ -22,7 +22,7 @@ To use the automatic .rdm -> .glb and .dds -> .png conversion (optional), you ne
 # Usage
 ## Importing 
 1. With the addon enabled, go to Blender->Import->Anno (.cfg). Select the .cfg file that you want to import into blender. You'll want the boxes for .ifo and .cf7 checked for full functionality.
-2. This may take some time. Tip: Use solid viewport shading during the import - generating the material shaders takes up the most time. Other tip: The import process currently creates a decent amount of waste. In the outliner, under orphan data, click the purge button a few times.
+2. This may take some time. Tip: Use solid viewport shading during the import - generating the material shaders takes up the most time. Other tip: The import process currently creates a decent amount of garbage. In the outliner, under orphan data, click the purge button a few times.
 3. It should look something like this now:
 ![Screenshot 2021-11-27 171306](https://user-images.githubusercontent.com/94999291/143691392-3ac47ca7-673e-40e2-9d08-faadb156af99.png)
 4. Do not delete/move/edit the .cfg and .cf7 files that you imported from. The addon remembers where you imported from and needs the original file to export it again.
@@ -47,4 +47,3 @@ Tip: The .ifo and .cf7 objects might be distracting. If you shift click on the e
 1. Select your MAIN_FILE object.
 2. Go the Export->Anno (.cfg) and select where you want to export to. 
 3. The exporter will create the .cfg (and .ifo and .cf7) file(s).
-4. Don't forget that you'll need to convert the .cf7 to .fc
