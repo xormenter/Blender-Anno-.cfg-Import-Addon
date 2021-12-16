@@ -47,6 +47,12 @@ class ImportExportAnnoCfgPreferences(AddonPreferences):
         subtype='FILE_PATH',
         default = "C:\\Users\\Public\\texconv.exe",
     )
+    path_to_fc_converter : StringProperty(
+        name = "Path to AnnoFCConverter.exe",
+        description = "Path to the AnnoFCConverter tool used to convert .fc to .cf7 and vice versa.",
+        subtype='FILE_PATH',
+        default = "C:\\tools\\AnnoFCConverter.exe",
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -54,6 +60,7 @@ class ImportExportAnnoCfgPreferences(AddonPreferences):
         layout.prop(self, "path_to_rda_folder")
         layout.prop(self, "path_to_rdm4")
         layout.prop(self, "path_to_texconv")
+        layout.prop(self, "path_to_fc_converter")
 
     @classmethod
     def get_path_to_rda_folder(cls):
@@ -64,6 +71,9 @@ class ImportExportAnnoCfgPreferences(AddonPreferences):
     @classmethod
     def get_path_to_texconv(cls):
         return Path(bpy.context.preferences.addons[__name__].preferences.path_to_texconv)
+    @classmethod
+    def get_path_to_fc_converter(cls):
+        return Path(bpy.context.preferences.addons[__name__].preferences.path_to_fc_converter)
 
 
 def add_rda_path_prefix(path):
@@ -803,6 +813,8 @@ class ExportAnnoCfg(Operator, ExportHelper):
         cf7tree_string = cf7tree_string.replace("</cf7_imaginary_root>", "").replace("<cf7_imaginary_root>","")
         with open(cf7_filepath, 'w') as f:
             f.write(cf7tree_string)
+        if ImportExportAnnoCfgPreferences.get_path_to_fc_converter().exists():
+            subprocess.call(f"\"{ImportExportAnnoCfgPreferences.get_path_to_fc_converter()}\" -w \"{cf7_filepath}\" -o \"{cf7_filepath.with_suffix('.fc')}\"")
         return
 
 
@@ -878,12 +890,28 @@ class ImportAnnoCfg(Operator, ImportHelper):
         default=True,
     )
 
+    import_as_subfile: BoolProperty(
+        name="Import .cfg as Subfile",
+        description="Adds the file as a FILE_ object under the selected MAIN_FILE object. Note: Some .cfgs require specific sequences in the main files ifo in order to show up in game properly.",
+        default=False,
+    )
+
 
     def execute(self, context):
         self.prop_data_by_filename = {}
         self.main_file_path = Path(self.filepath)
         if self.main_file_path.suffix == ".cfg":
-            file_obj = self.import_cfg_file(self.main_file_path.relative_to(ImportExportAnnoCfgPreferences.get_path_to_rda_folder()), "MAIN_FILE_" + self.main_file_path.name)
+            if not self.import_as_subfile:
+                file_obj = self.import_cfg_file(self.main_file_path.relative_to(ImportExportAnnoCfgPreferences.get_path_to_rda_folder()), "MAIN_FILE_" + self.main_file_path.name)
+            else:
+                parent_object = context.active_object
+                if parent_object is None or self.get_object_config_type(parent_object) != "MAIN":
+                    self.report({"ERROR"}, "You need to select the MAIN_FILE as active object first.")
+                    return {'CANCELLED'}
+                name = "FILE_IMPORT_" + self.main_file_path.name
+                file_obj = self.add_empty_to_scene(name, Transform(), parent_object)
+                file_obj["AdaptTerrainHeight"] = 1
+                file_obj = self.import_cfg_file(self.main_file_path.relative_to(ImportExportAnnoCfgPreferences.get_path_to_rda_folder()), name, Transform(), parent_object, file_obj)
             if self.also_import_ifo:
                 self.import_ifo_file(self.main_file_path.with_suffix(".ifo"), file_obj)
             if self.also_import_cf7:
@@ -964,6 +992,7 @@ class ImportAnnoCfg(Operator, ImportHelper):
         obj["Tag"] = node.tag
         if self.get_text(node, "Name") != "":
             obj["Name"] = self.get_text(node, "Name")
+            obj.name = "IFO_"+node.tag+"_"+self.get_text(node, "Name")
     
     def add_object_from_vertices(self, vertices):
         edges = []
@@ -1042,6 +1071,11 @@ class ImportAnnoCfg(Operator, ImportHelper):
 
 
     def import_cf7_file(self, fullpath, file_obj): 
+        if not fullpath.exists() and not fullpath.with_suffix(".fc").exists():
+            self.report({'INFO'}, f"Missing file: {fullpath.with_suffix('.fc')}")
+            return
+        if not fullpath.exists() and fullpath.with_suffix(".fc").exists() and ImportExportAnnoCfgPreferences.get_path_to_fc_converter().exists():
+            subprocess.call(f"\"{ImportExportAnnoCfgPreferences.get_path_to_fc_converter()}\" -r \"{fullpath.with_suffix('.fc')}\" -o \"{fullpath}\"")
         if not fullpath.exists():
             self.report({'INFO'}, f"Missing file: {fullpath}")
             return
