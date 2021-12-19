@@ -440,6 +440,11 @@ class ExportAnnoCfg(Operator, ExportHelper):
         description="Also writes an .cf7 file of the same name. ONLY works when you've imported the file with an .cf7 file.",
         default=True,
     )
+    prefer_safe_over_cf7: BoolProperty(
+        name="Prefer s.a.f.e. over cf7",
+        description="Prefer simple anno feedback encoding over cf7",
+        default=True,
+    )
 
     def execute(self, context):
         if not context.active_object:
@@ -485,7 +490,10 @@ class ExportAnnoCfg(Operator, ExportHelper):
         if self.also_export_cf7:
             for obj in self.children_by_object[self.main_obj.name]:
                 if self.get_object_config_type(obj) == "CF7FILE":
-                    self.export_cf7_file(obj, Path(self.filepath).with_suffix(".cf7"))
+                    if self.prefer_safe_over_cf7:
+                        self.export_safe_file(obj, Path(self.filepath).with_suffix(".xml"))
+                    else:
+                        self.export_cf7_file(obj, Path(self.filepath).with_suffix(".cf7"))
                     break
 
         self.report({'INFO'}, 'Export completed!')
@@ -505,6 +513,8 @@ class ExportAnnoCfg(Operator, ExportHelper):
     def add_properties(self, obj, node):
         for prop, value in obj.items():
             if prop in ["_RNA_UI"]: #weird properties that blender seems to do on its own.
+                continue
+            if prop in ["GroupName"]: #for technical reasons
                 continue
             self.find_or_create(node, prop).text = str(value)
 
@@ -638,6 +648,7 @@ class ExportAnnoCfg(Operator, ExportHelper):
         for blender_material_slot in obj.material_slots:
             blender_material = blender_material_slot.material
             if blender_material is None:
+                print("Ignoring invalid material")
                 continue
             material_node = ET.SubElement(materials_node, "Config")
             self.export_material(blender_material, material_node)
@@ -665,6 +676,7 @@ class ExportAnnoCfg(Operator, ExportHelper):
         for blender_material_slot in obj.material_slots:
             blender_material = blender_material_slot.material
             if blender_material is None:
+                print("Ignoring invalid material for decal")
                 continue
             material_node = ET.SubElement(materials_node, "Config")
             self.export_material(blender_material, material_node)
@@ -768,6 +780,7 @@ class ExportAnnoCfg(Operator, ExportHelper):
         if node is None:
             self.report({'INFO'}, f"Warning, detected new cf7 object. This is not supported. Ignoring {obj.name}")
             return
+        obj.rotation_mode = "QUATERNION"
         transform = Transform(obj.location, obj.rotation_quaternion, obj.scale, anno_coords = False)
         transform.convert_to_anno_coords()
         
@@ -779,15 +792,24 @@ class ExportAnnoCfg(Operator, ExportHelper):
         self.find_or_create(node, "Extents/y").text = self.format_float(transform.scale[1])
         self.find_or_create(node, "Extents/z").text = self.format_float(transform.scale[2])
 
+
         self.find_or_create(node, "Orientation/w").text = self.format_float(transform.rotation[0])
         self.find_or_create(node, "Orientation/x").text = self.format_float(transform.rotation[1])
         self.find_or_create(node, "Orientation/y").text = self.format_float(transform.rotation[2])
         self.find_or_create(node, "Orientation/z").text = self.format_float(transform.rotation[3])
 
+        obj.rotation_mode = "XYZ"
+        rotationZ = obj.rotation_euler.z
+        self.find_or_create(node, "RotationY").text = self.format_float(rotationZ)
+
         self.add_properties(obj, node)
 
     def get_cf7_node_by_name(self,cf7root, name):
         node =  cf7root.find(f".//i/[Name=\"{name}\"]")
+        return node
+
+    def get_safe_node_by_name(self,cf7root, name):
+        node =  cf7root.find(f".//Dummy/[Name=\"{name}\"]")
         return node
 
     def export_cf7_file(self, cf7_object, cf7_filepath): 
@@ -814,8 +836,69 @@ class ExportAnnoCfg(Operator, ExportHelper):
         with open(cf7_filepath, 'w') as f:
             f.write(cf7tree_string)
         if ImportExportAnnoCfgPreferences.get_path_to_fc_converter().exists():
-            subprocess.call(f"\"{ImportExportAnnoCfgPreferences.get_path_to_fc_converter()}\" -w \"{cf7_filepath}\" -o \"{cf7_filepath.with_suffix('.fc')}\"")
+            subprocess.call(f"\"{ImportExportAnnoCfgPreferences.get_path_to_fc_converter()}\" -w \"{cf7_filepath}\" -y -o \"{cf7_filepath.with_suffix('.fc')}\"")
         return
+
+    def export_safe_dummy_object(self, obj, node, dummy_groups_node):
+        if node is None:
+            group_name = obj.name.split("_", maxsplit = 1)[1]
+            if "GroupName" in obj and str(obj["GroupName"]) != "":
+                group_name = str(obj["GroupName"])
+
+            group_node = dummy_groups_node.find(f".//DummyGroup/[Name=\"{group_name}\"]")
+            if group_node is None:
+                group_node = ET.SubElement(dummy_groups_node, "DummyGroup")
+                ET.SubElement(group_node, "Name").text = group_name
+            node = ET.SubElement(group_node, "Dummy")
+            ET.SubElement(node, "Name").text = obj.name.split("_", maxsplit = 1)[1]
+        obj.rotation_mode = "QUATERNION"
+        transform = Transform(obj.location, obj.rotation_quaternion, obj.scale, anno_coords = False)
+        transform.convert_to_anno_coords()
+        
+        self.find_or_create(node, "Position/x").text = self.format_float(transform.location[0])
+        self.find_or_create(node, "Position/y").text = self.format_float(transform.location[1])
+        self.find_or_create(node, "Position/z").text = self.format_float(transform.location[2])
+
+        self.find_or_create(node, "Extents/x").text = self.format_float(transform.scale[0])
+        self.find_or_create(node, "Extents/y").text = self.format_float(transform.scale[1])
+        self.find_or_create(node, "Extents/z").text = self.format_float(transform.scale[2])
+
+        self.find_or_create(node, "Orientation/w").text = self.format_float(transform.rotation[0])
+        self.find_or_create(node, "Orientation/x").text = self.format_float(transform.rotation[1])
+        self.find_or_create(node, "Orientation/y").text = self.format_float(transform.rotation[2])
+        self.find_or_create(node, "Orientation/z").text = self.format_float(transform.rotation[3])
+
+        obj.rotation_mode = "XYZ"
+        rotationZ = obj.rotation_euler.z
+        self.find_or_create(node, "RotationY").text = self.format_float(rotationZ)
+
+        self.add_properties(obj, node)
+
+    def export_safe_file(self, cf7_object, safe_filepath): 
+        cf7_blueprint_filepath = Path(cf7_object["FileName"])
+        tree = None
+        root = None
+        if not cf7_blueprint_filepath.exists() or cf7_blueprint_filepath.suffix != ".xml":
+            root = ET.Element("SimpleAnnoFeedbackEncoding")
+            tree = ET.ElementTree(root)
+            ET.SubElement(root, "FeedbackConfigs")
+            ET.SubElement(root, "GUIDNames")
+        else:
+            tree = ET.parse(str(cf7_blueprint_filepath))
+            root = tree.getroot()
+        dummy_groups_node = self.find_or_create(root, "DummyGroups")
+        for group_node in list(dummy_groups_node): #clean all dummies so that one can delete...
+            dummy_groups_node.remove(group_node)
+        for cf7_dummy_obj in self.children_by_object[cf7_object.name]:
+            if len(cf7_dummy_obj.name.split("_")) == 1:
+                print("Invalid name for ", cf7_dummy_obj.name, "ignoring")
+                continue
+            name = cf7_dummy_obj.name.split("_", maxsplit = 1)[1]
+            node = self.get_safe_node_by_name(root, name)
+            self.export_safe_dummy_object(cf7_dummy_obj, node, dummy_groups_node)
+        ET.indent(tree, space="\t", level=0)
+        tree.write(safe_filepath)
+
 
 
     def get_object_config_type(self, obj):
@@ -889,6 +972,11 @@ class ImportAnnoCfg(Operator, ImportHelper):
         description="Also import the .cf7 file with the same name.",
         default=True,
     )
+    prefer_safe_over_cf7: BoolProperty(
+        name="Prefer s.a.f.e. over cf7",
+        description="Prefer simple anno feedback encoding over cf7",
+        default=True,
+    )
 
     import_as_subfile: BoolProperty(
         name="Import .cfg as Subfile",
@@ -915,7 +1003,10 @@ class ImportAnnoCfg(Operator, ImportHelper):
             if self.also_import_ifo:
                 self.import_ifo_file(self.main_file_path.with_suffix(".ifo"), file_obj)
             if self.also_import_cf7:
-                self.import_cf7_file(self.main_file_path.with_suffix(".cf7"), file_obj)
+                if self.prefer_safe_over_cf7 and self.main_file_path.with_suffix(".xml").exists():
+                    self.import_safe_file(self.main_file_path.with_suffix(".xml"), file_obj)
+                else:
+                    self.import_cf7_file(self.main_file_path.with_suffix(".cf7"), file_obj)
         elif self.main_file_path.suffix == ".prp":
             name = "PROP_IMPORT_" + self.main_file_path.name
             parent_object = context.active_object
@@ -972,6 +1063,7 @@ class ImportAnnoCfg(Operator, ImportHelper):
         transform.apply_to(obj)
         for i,material in enumerate(materials):
             if len(obj.data.materials) <= i:
+                print(obj.name)
                 print("Warning: Missing materials slot for material" ,i, "at", data_path)
                 break
             obj.data.materials[i] = material.as_blender_material()
@@ -1053,21 +1145,27 @@ class ImportAnnoCfg(Operator, ImportHelper):
                 ifo_obj[node.tag] = node.text
         return
 
-    def import_cf7_object(self, node, parent_object):
-        if node.tag == 'i' and node.find("Position") is not None and node.find("Orientation") is not None and node.find("Extents") is not None:
+    def import_cf7_object(self, node, parent_object, parent_name = ""):
+        name = self.get_text(node, "Name", "")
+        if node.tag in ['Dummy','i']  and node.find("Position") is not None and node.find("Orientation") is not None and node.find("Extents") is not None:
             #this should be a node that defines a feedback dummy object
             sca = (parse_float_node(node, "Extents/x", 1.0), parse_float_node(node, "Extents/y", 1.0), parse_float_node(node, "Extents/z", 1.0))
             loc = (parse_float_node(node, "Position/x"), parse_float_node(node, "Position/y"), parse_float_node(node, "Position/z"))
-            rot = (parse_float_node(node, "Orientation/w"), parse_float_node(node, "Orientation/x"), parse_float_node(node, "Orientation/y"), parse_float_node(node, "Orientation/z"))
-            name = self.get_text(node, "Name")
+            # rot = (parse_float_node(node, "Orientation/w"), parse_float_node(node, "Orientation/x"), parse_float_node(node, "Orientation/y"), parse_float_node(node, "Orientation/z"))
+            rot = (1,0,0,0)
             if name == "": #idk what to do with unnamed dummies
                 return
             obj = self.add_empty_to_scene("CF7DUMMY_"+name, Transform(loc, rot, sca, anno_coords = True), parent_object, "ARROWS")
+            obj.rotation_mode = "XYZ"
+            obj.rotation_euler.z = parse_float_node(node, "RotationY")
             for attribute in cf7_dummy_properties():
                 self.save_as_custom_property(node, attribute, obj)
+            obj["GroupName"] = name.rsplit("_", maxsplit=1)[0]
+            if parent_name != "":
+                obj["GroupName"] = parent_name
             return
         for subnode in list(node):
-            self.import_cf7_object(subnode, parent_object)
+            self.import_cf7_object(subnode, parent_object, name)
 
 
     def import_cf7_file(self, fullpath, file_obj): 
@@ -1088,6 +1186,19 @@ class ImportAnnoCfg(Operator, ImportHelper):
         cf7_object["FileName"] = str(fullpath) 
         for node in list(root):
             self.import_cf7_object(node, cf7_object)
+        return
+
+    def import_safe_file(self, fullpath, file_obj): 
+        if not fullpath.exists():
+            self.report({'INFO'}, f"Missing file: {fullpath}")
+            return
+        print("importing safexml")
+        tree = ET.parse(fullpath)
+        root = tree.getroot()
+        safe_object = self.add_empty_to_scene("CF7FILE_SAFE", Transform(), file_obj)
+        safe_object["FileName"] = str(fullpath) 
+        for node in list(root):
+            self.import_cf7_object(node, safe_object)
         return
 
     def import_cfg_file(self, data_path, name, transform = Transform(), parent_object = None, file_obj = None): 
