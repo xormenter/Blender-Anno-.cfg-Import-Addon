@@ -10,6 +10,8 @@ To use the automatic .rdm -> .glb and .dds -> .png conversion (optional), you ne
 - rdm4 converter https://github.com/lukts30/rdm4
 - texconv.exe https://github.com/microsoft/DirectXTex
 - .fc Converter https://github.com/taubenangriff/AnnoFCConverter
+It also supports importing/exporting for simple anno feedback encoding: https://github.com/xormenter/Simple-Anno-Feedback-Encoding
+For this, check the prefer "Prefer s.a.f.e. over cf7" option, the addon will then prefer loading/saving a .xml to a .cf7. 
 
 
 # Installation
@@ -33,7 +35,7 @@ First a few words to the scene structure. Your imported object is called MAIN_FI
 Each object in the scene starts with some capitalized identifier (its config type). Generally speaking: Do not change their names, the name is used to map them back to existing objects in the .cfg file. When adding new objects to the scene, make sure that their names don't collide with existing objects. I'd also strongly advise you to only import one single .cfg file into a .blend file at once.
 You can:
 - Move everything (not sure if PropContainers support Transforms though, so keep them at 0,0,0). 
-- Duplicate almost everything - EXCEPT for some ifo objects and ALL CF7DUMMYs. Currently if you want more people etc, you need to add them in the .cf7 file first.
+- Duplicate almost everything - EXCEPT for some ifo objects and CF7DUMMYs. Currently if you want more people etc, you need to add them in the .cf7 file first or use this addon in combination with simple anno feedback encoding, then you can also add/duplicate dummies.
 - Delete objects.
 - Edit values under "Object Properties->Custom Properties". For example, each model like object stores its file path there. Particles and materials have a lot of options here. Note that all properties are stored as strings!
 ![Screenshot 2021-11-27 172302t](https://user-images.githubusercontent.com/94999291/143703985-a10dc468-b76c-48ee-b4e1-b5cd299f6031.jpg)
