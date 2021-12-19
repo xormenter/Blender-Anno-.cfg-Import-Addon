@@ -10,6 +10,7 @@ To use the automatic .rdm -> .glb and .dds -> .png conversion (optional), you ne
 - rdm4 converter https://github.com/lukts30/rdm4
 - texconv.exe https://github.com/microsoft/DirectXTex
 - .fc Converter https://github.com/taubenangriff/AnnoFCConverter
+
 It also supports importing/exporting for simple anno feedback encoding: https://github.com/xormenter/Simple-Anno-Feedback-Encoding
 For this, check the prefer "Prefer s.a.f.e. over cf7" option, the addon will then prefer loading/saving a .xml to a .cf7. 
 
