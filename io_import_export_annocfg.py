@@ -443,7 +443,7 @@ class ExportAnnoCfg(Operator, ExportHelper):
     prefer_safe_over_cf7: BoolProperty(
         name="Prefer s.a.f.e. over cf7",
         description="Prefer simple anno feedback encoding over cf7",
-        default=True,
+        default=False,
     )
 
     def execute(self, context):
@@ -975,7 +975,7 @@ class ImportAnnoCfg(Operator, ImportHelper):
     prefer_safe_over_cf7: BoolProperty(
         name="Prefer s.a.f.e. over cf7",
         description="Prefer simple anno feedback encoding over cf7",
-        default=True,
+        default=False,
     )
 
     import_as_subfile: BoolProperty(
