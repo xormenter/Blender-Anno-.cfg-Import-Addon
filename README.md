@@ -54,7 +54,8 @@ Tip: The .ifo and .cf7 objects might be distracting. If you shift click on the e
 3. The exporter will create the .cfg (and .ifo and .cf7) file(s).
 
 ## Feedback
-You might have noticed that the import/export tools allow you to change from .cf7 to SimpleAnnoFeedbackEncoding. For this feature I integrated my feedback encoding (https://github.com/xormenter/Simple-Anno-Feedback-Encoding) directly into the blender editor.
+When you've imported a .cf7 file, you'll get a CF7FILE Object. In its properties, you basically get the whole xml document (except for the dummies). You can edit the values there. But due to blender ui scripting limitations, you cannot add or remove any nodes here. :-( But wait, cf7 is a terrible format for Feedback Definitions anyways, right? 
+You might have noticed that the import/export tools allow you to change from .cf7 to SimpleAnnoFeedbackEncoding. For this feature I integrated my feedback encoding (https://github.com/xormenter/Simple-Anno-Feedback-Encoding) directly into the blender editor. It offers a very simple and much more intuitive way to define feedback sequences. But a) its less powerful and b) sadly, you must write it all yourself. So I suggest using it when you want truely custom feedback. Otherwise, if you're just repositioning dummies, stick with .cf7.
 To use it:
 1. Select your MAIN_FILE object. 
 2. Then press `Shift-A`->Mesh->Add Anno Feedback Object. Select the type SimpleAnnoFeedbackObject. 
