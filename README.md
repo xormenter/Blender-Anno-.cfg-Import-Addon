@@ -1,53 +1,68 @@
 # Blender-Anno-.cfg-Import/Export-Addon
 Allows you to import from Anno (1800) .cfg files, make changes and export it to .cfg again.
 Automatically positions all models, props, particles, decals, subfiles, ifo-blockers, and cf7 blockers in the scene.
-When used with the rdm4 converter and texconv, it will automatically convert .rdm to .glb and .dds to .png for importing. Same goes for .fc files and the AnnoFCConverter.
-Also capable of importing/exporting corresponding .ifo and .cf7 (converted from .fc) files.
+When used with the rdm4 converter and texconv, it will automatically convert .rdm to .glb and .dds to .png for importing. Same goes for .fc files and the AnnoFCConverter. It also has a export to .rda option for models.
+This means that if you have all those tools, you don't have to convert anything manually and can edit everything directly in Blender.
 
 # Requirements
 Blender (tested with 2.93)
-To use the automatic .rdm -> .glb and .dds -> .png conversion (optional), you need:
+To use the automati conversion, you need:
 - rdm4 converter https://github.com/lukts30/rdm4
 - texconv.exe https://github.com/microsoft/DirectXTex
-- .fc Converter https://github.com/taubenangriff/AnnoFCConverter
-
-It also supports importing/exporting for simple anno feedback encoding: https://github.com/xormenter/Simple-Anno-Feedback-Encoding
-For this, check the prefer "Prefer s.a.f.e. over cf7" option, the addon will then prefer loading/saving a .xml to a .cf7. 
-
+- .fc Converter (AnnoFCConverter.exe) https://github.com/taubenangriff/AnnoFCConverter
+And of course the .rda explorer to unpack the game files: https://github.com/lysannschlegel/RDAExplorer
 
 # Installation
-1. Put the python file into your blender addon directory (for example `C:\Program Files\Blender Foundation\Blender X.YZ\X.YZ\scripts\addons`).
-2. Open blender, go to Edit->Preferences->Addons and enable the Annocfg addon.
-3. If you haven't done so already, unpack the rda files (at least the data/graphics part of it) into a single folder. It should look something like this: `...rda\data\graphics\...`. 
+1. Install the other tools.
+2. Open blender, go to Edit->Preferences->Addons. Click `Install...` and select the downloaded `io_annocfg.zip` (https://github.com/xormenter/Blender-Anno-.cfg-Import-Addon/releases/tag/v.2.1).
+3. If you haven't done so already, unpack the .rda files (at least the data/graphics part of it) into a single folder. It should look something like this: `...rda\data\graphics\...`.  
 4. In the addon preferences, set the rda path to the folder that contains your `data\graphics` folder with the unpacked rda files.
-5. If you have the rdm4 converter and or texconv specify the paths to their executable. 
+5. Specify the paths to the `texconv.exe`, `rdm4-bin.exe`, `AnnoFCConverter.exe` executables.
+You are now ready to go!
 
 # Usage
 ## Importing 
-1. With the addon enabled, go to Blender->Import->Anno (.cfg). Select the .cfg file that you want to import into blender. You'll want the boxes for .ifo and .cf7 checked for full functionality.
-2. This may take some time. Tip: Use solid viewport shading during the import - generating the material shaders takes up the most time. Other tip: The import process currently creates a decent amount of garbage. In the outliner, under orphan data, click the purge button a few times.
+1. With the addon enabled, go to `Blender->Import->Anno (.cfg)`. Select the .cfg file that you want to import into blender. 
+2. This may take some time. Tip: Use solid viewport shading during the import - generating the material shaders takes up the most time. 
 3. It should look something like this now:
-![Screenshot 2021-11-27 171306](https://user-images.githubusercontent.com/94999291/143691392-3ac47ca7-673e-40e2-9d08-faadb156af99.png)
-4. Do not delete/move/edit the .cfg and .cf7 files that you imported from. The addon remembers where you imported from and needs the original file to export it again.
+4. ![Blender 08_01_2022 23_04_29](https://user-images.githubusercontent.com/94999291/148661492-a38178c6-9e5f-49b2-9c3f-404f283c21a0.png)
+
+If you don't want to import from the rda directory, but from a mod folder, set the Anno Mod Folder (under Anno Scene) to your mod folder first. This allows the addon to also consider the files inside that folder.
 
 
 ## Editing
 First a few words to the scene structure. Your imported object is called MAIN_FILE_* and all other objects are (in)direct children of it, corresponding to the tree structure of the .cfg xml. Furthermore, the main file has two special children, the IFOFILE (blocking) and the CF7FILE (animated stuff), if you imported these files. 
-Each object in the scene starts with some capitalized identifier (its config type). Generally speaking: Do not change their names, the name is used to map them back to existing objects in the .cfg file. When adding new objects to the scene, make sure that their names don't collide with existing objects. I'd also strongly advise you to only import one single .cfg file into a .blend file at once.
+Each object in the scene starts with some capitalized identifier (its config type). The name does not determine the ConfigType though, it is just for clarity.
+The hierarchy corresponds to the XML hierarchy and is  therefore important.
+
+With "N", you can show/hide a properties window in the 3D View. There, select "Anno Object" to get more details on each object. 
+
 You can:
-- Move everything (not sure if PropContainers support Transforms though, so keep them at 0,0,0). 
-- Duplicate almost everything - EXCEPT for some ifo objects and CF7DUMMYs. Currently if you want more people etc, you need to add them in the .cf7 file first or use this addon in combination with simple anno feedback encoding, then you can also add/duplicate dummies.
-- Delete objects.
-- Edit values under "Object Properties->Custom Properties". For example, each model like object stores its file path there. Particles and materials have a lot of options here. Note that all properties are stored as strings!
-![Screenshot 2021-11-27 172302t](https://user-images.githubusercontent.com/94999291/143703985-a10dc468-b76c-48ee-b4e1-b5cd299f6031.jpg)
-- Import new props (.prp) files using the import menu. For this, first select the prop container you want the prop to be in.
-- Import subfiles. Use the "import as subfile" option when importing a .cfg and select the MAIN_FILE that should become the parent object.
-- Add new models. This is a bit more involved: Add your object to the scene. Name it MODEL_whatever and make it a child of the MAIN_FILE object. Go to the custom properties, and add the FileName property (and insert the path to the .rdm as you would in a .cfg). You can also use imported models, edit them in edit mode, export them (and convert with the rdm4 converter). Then don't forget to change the FileName custom property! Important: This addon mirrors every model along the x axis, as the anno engine does. This means that if you want to export an (edited) model from your scene, you must mirror it first: Go into edit mode, set the reference point to the origin and mirror along the x axis (you probably want to make sure you've applied location, rotation and scale first). Also keep in mind to remove the models parent (MAIN_FILE) object before exporting to gltf/glb.
-- Change materials: You can also change the textures of an material directly in blender. For this, go to the shading tab and locate the texture nodes. Change the textures to whatever you want them to be (important: The files need to be somewhere inside the folder that contains your unpacked .rda and should have the same internal file path as the .dds you want to reference). Even more importantly, the texture file name needs to indicate if its a diff, norm, metal or height texture, so please name them e.g. "whatever_diff_0.png". Do not make changes to the shader graph, as the addon only looks up the used texture names without analysing the shader. If you want to tweak the material, you also have acces to the materials custom properties if you know what to do with them.
-- Regarding the .ifo objects: There are three types of ifo objects. Cubes, planes and empties. Cubes: Move them around, scale them, rotate them. Planes: Do not scale them. Enter into edit mode and manually position the vertices. Empties: They just store data (Sequences) in their custom properties.
-Tip: The .ifo and .cf7 objects might be distracting. If you shift click on the eye next to the IFOFILE or CF7FILE object, you can hide them all.
+- Reposition models, props, dummies etc to your liking. Or duplicate or delete them.
+- Edit meshes. When done, keep the Model selected and go to Export->Anno Model (.rdm, .glb). You can directly safe it as .rdm. Please export it to a subfolder of the rda folder or your scenes mod folder.
+- Edit the properties in the Anno Object Tab.
+- Change material texture files - but make sure that the texture path is a subpath of either the rda folder or your current mod directory, otherwise the addon cannot convert the path to a relative /data/graphics/... path. The same goes for FileNames of other objects. 
+- Add new props with the import prop functionality. For this, select the parent PropContainer first.
+- Add subfiles by importing another .cfg file while the MAIN_FILE is selected and using the option "import as subfile".
+- Regarding the .ifo objects: There are two types of ifo objects. Cubes and Planes. Cubes: Move them around, scale them, rotate them. Planes: Do not scale them! Enter into edit mode and manually position the vertices.
+- If you want to add some assets from another .cfg file, simply import both. Then you change the parent to bring them into the other file.
+Tip: The .ifo and .cf7 objects might be distracting. If you shift click on the eye next to the IFOFILE or CF7FILE object in the scene tree view, you can hide them all.
 
 ## Exporting
 1. Select your MAIN_FILE object.
 2. Go the Export->Anno (.cfg) and select where you want to export to. 
 3. The exporter will create the .cfg (and .ifo and .cf7) file(s).
+
+## Feedback
+You might have noticed that the import/export tools allow you to change from .cf7 to SimpleAnnoFeedbackEncoding. For this feature I integrated my feedback encoding (https://github.com/xormenter/Simple-Anno-Feedback-Encoding) directly into the blender editor.
+To use it:
+1. Select your MAIN_FILE object. 
+2. Then press `Shift-A`->Mesh->Add Anno Feedback Object. Select the type SimpleAnnoFeedbackObject. 
+3. Select that new object and add a DummyGroup. Give it a Name (in the property panel!)
+4. Under the DummyGroup, add Dummy Objects. (give it a name!) Note that if you duplicate a dummy/dummy group, the name in the property window will also be duplicated. You must change it to be unique!
+5. Add a FeedbackConfig to the SimpleAnnoFeedbackObject. In the properties panel, you can see a feedback category where you can edit the values, add GUID Variations and Sequence Elements. For a guid on what they do, have a look at the original simple anno feedback github page.
+6. Here's an example config that makes Santa walk between two dummies:
+![Blender 08_01_2022 23_31_12](https://user-images.githubusercontent.com/94999291/148662128-756104d4-bf6d-4ce1-8b38-347f6136be44.png)
+
+7. Finally, when exporting the MAIN_FILE object, select the FeedbackType SimpleAnnnoFeedbackEncoding. It will write a .xml file, convert it to .cf7 and convert that to .fc. 
+
