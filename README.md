@@ -41,7 +41,7 @@ You can:
 - Reposition models, props, dummies etc to your liking. Or duplicate or delete them.
 - Edit meshes. When done, keep the Model selected and go to Export->Anno Model (.rdm, .glb). You can directly safe it as .rdm. Please export it to a subfolder of the rda folder or your scenes mod folder.
 - Edit the properties in the Anno Object Tab.
-- Change material texture files - but make sure that the texture path is a subpath of either the rda folder or your current mod directory, otherwise the addon cannot convert the path to a relative /data/graphics/... path. The same goes for FileNames of other objects. 
+- Change material texture files - but make sure that the texture path is a subpath of either the rda folder or your current mod directory, otherwise the addon cannot convert the path to a relative /data/graphics/... path. The same goes for FileNames of other objects. If you want to add new materials, you need to duplicate existing materials imported from .cfg files and use that one. Otherwise it will lack important xml entries and will not work in the game itself.
 - Add new props with the import prop functionality. For this, select the parent PropContainer first.
 - Add subfiles by importing another .cfg file while the MAIN_FILE is selected and using the option "import as subfile".
 - Regarding the .ifo objects: There are two types of ifo objects. Cubes and Planes. Cubes: Move them around, scale them, rotate them. Planes: Do not scale them! Enter into edit mode and manually position the vertices.
