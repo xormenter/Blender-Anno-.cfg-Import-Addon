@@ -88,10 +88,10 @@ class FeedbackSequenceListItem(PropertyGroup):
     animation_type: EnumProperty(
             name='Type',
             description='Animation Type',
-            items={
+            items=[
             ('Walk', 'Walk', 'Walk from current dummy to the target dummy.'),
             ('IdleAnimation', 'IdleAnimation', 'Repeat animation a number of times'),
-            ('TimedIdleAnimation', 'TimedIdleAnimation', 'Repeat animation for time in ms')},
+            ('TimedIdleAnimation', 'TimedIdleAnimation', 'Repeat animation for time in ms')],
             default='IdleAnimation')
     
     sequence: EnumProperty(
