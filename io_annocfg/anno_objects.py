@@ -436,6 +436,16 @@ class PT_AnnoScenePropertyPanel(Panel):
         
         col.prop(context.scene, "anno_mod_folder")
 
+class ConvertCf7DummyToDummy(Operator):
+    bl_idname = "object.convertcf7dummy"
+    bl_label = "Convert to SAFE Dummy"
+
+    def execute(self, context):
+        obj = context.active_object
+        obj.anno_object_class_str = obj.anno_object_class_str.replace("Cf7", "")
+        obj.name = obj.name.replace("Cf7", "")
+        return {'FINISHED'}
+
 class PT_AnnoObjectPropertyPanel(Panel):
     bl_label = "Anno Object"
     bl_idname = "VIEW_3D_PT_AnnoObject"
@@ -459,6 +469,8 @@ class PT_AnnoObjectPropertyPanel(Panel):
         
         row.prop(obj, "anno_object_class_str")
         row.enabled = False
+        if "Cf7" in obj.anno_object_class_str:
+            col.operator(ConvertCf7DummyToDummy.bl_idname, text = "Convert to SimpleAnnoFeedback")
         dyn = obj.dynamic_properties
         dyn.draw(col)
 
@@ -659,7 +671,7 @@ class Material:
             ET.SubElement(node, color_name + ".b").text = format_float(self.colors[color_name][2])
         for texture_name, texture_enabled_flag in self.texture_definitions.items():
             used_value = self.texture_enabled[texture_name]
-            ET.SubElement(node, texture_enabled_flag).text = str(int(used_value))
+            find_or_create(node, texture_enabled_flag).text = str(int(used_value))
         for prop, value in self.custom_properties.items():
             if value == "":
                 continue
@@ -702,7 +714,7 @@ class Material:
         texture_path = Path(texture_path)
         texture_path = Path(texture_path.parent, texture_path.stem + self.texture_quality_suffix()+".dds")
         png_file = texture_path.with_suffix(".png")
-        image = bpy.data.images.get(str(png_file), None)
+        image = bpy.data.images.get(str(png_file.name), None)
         if image is not None:
             return image
         fullpath = data_path_to_absolute_path(texture_path)
@@ -721,9 +733,258 @@ class Material:
         attribute_list = tuple([self.name] + list(self.textures.items()) + list([(a, tuple(b)) for a, b in self.colors.items()]) + list(self.custom_properties.items()))
         return hash(attribute_list)
     
+    def create_anno_shader(self):
+        anno_shader = bpy.data.node_groups.new('AnnoShader', 'ShaderNodeTree')
+        
+        anno_shader.inputs.new("NodeSocketColor", "cDiffuse")
+        anno_shader.inputs.new("NodeSocketColor", "cDiffuseMultiplier")
+        anno_shader.inputs.new("NodeSocketFloat", "Alpha")
+        anno_shader.inputs.new("NodeSocketColor", "cNormal")
+        anno_shader.inputs.new("NodeSocketFloat", "Glossiness")
+        anno_shader.inputs.new("NodeSocketColor", "cMetallic")
+        anno_shader.inputs.new("NodeSocketColor", "cHeight")
+        anno_shader.inputs.new("NodeSocketColor", "cNightGlow")
+        anno_shader.inputs.new("NodeSocketColor", "cEmissiveColor")
+        anno_shader.inputs.new("NodeSocketFloat", "EmissionStrength")
+        anno_shader.inputs.new("NodeSocketColor", "cDyeMask")
+        
+        
+        anno_shader.outputs.new("NodeSocketShader", "Shader")
+        
+        inputs = self.add_shader_node(anno_shader, "NodeGroupInput", 
+                                        position = (0, 0), 
+                                    ).outputs
+        mix_c_diffuse = self.add_shader_node(anno_shader, "ShaderNodeMixRGB",
+                                        position = (1, 4),
+                                        default_inputs = {
+                                            0 : 1.0,
+                                        },
+                                        inputs = {
+                                            "Color1" : inputs["cDiffuseMultiplier"],
+                                            "Color2" : inputs["cDiffuse"],
+                                        },
+                                        blend_type = "MULTIPLY",
+                                    )
+        dye_mask = self.add_shader_node(anno_shader, "ShaderNodeRGBToBW",
+                                        position = (1, 3),
+                                        inputs = {
+                                            "Color" : inputs["cDyeMask"],
+                                        },
+                                    )
+        final_diffuse = self.add_shader_node(anno_shader, "ShaderNodeMixRGB",
+                                        position = (2, 3),
+                                        default_inputs = {
+                                            "Color2" : (1.0, 0.0, 0.0, 1.0),
+                                        },
+                                        inputs = {
+                                            "Fac" : dye_mask.outputs["Val"],
+                                            "Color1" : mix_c_diffuse.outputs["Color"],
+                                        },
+                                        blend_type = "MULTIPLY",
+                                    )
+        #Normals
+        separate_normal = self.add_shader_node(anno_shader, "ShaderNodeSeparateRGB",
+                                        position = (1, 2),
+                                        inputs = {
+                                            "Image" : inputs["cNormal"],
+                                        },
+                                    )
+        #Calc normal blue
+        square_x = self.add_shader_node(anno_shader, "ShaderNodeMath",
+                                        position = (2, 1.5),
+                                        operation = "POWER",
+                                        inputs = {
+                                            0 : separate_normal.outputs["R"],
+                                        },
+                                        default_inputs = {
+                                            1 : 2.0
+                                        },
+                                    )
+        square_y = self.add_shader_node(anno_shader, "ShaderNodeMath",
+                                        position = (2, 2.5),
+                                        operation = "POWER",
+                                        inputs = {
+                                            0 : separate_normal.outputs["G"],
+                                        },
+                                        default_inputs = {
+                                            1 : 2.0
+                                        },
+                                    )
+        add_squares = self.add_shader_node(anno_shader, "ShaderNodeMath",
+                                        position = (2.5, 2),
+                                        operation = "ADD",
+                                        inputs = {
+                                            0 : square_x.outputs["Value"],
+                                            1 : square_y.outputs["Value"],
+                                        },
+                                    )
+        inverted_add_squares = self.add_shader_node(anno_shader, "ShaderNodeMath",
+                                        position = (3, 2),
+                                        operation = "SUBTRACT",
+                                        inputs = {
+                                            1 : add_squares.outputs["Value"],
+                                        },
+                                        default_inputs = {
+                                            0 : 1.0
+                                        },
+                                    )
+        normal_blue = self.add_shader_node(anno_shader, "ShaderNodeMath",
+                                        position = (3.5, 2),
+                                        operation = "SQRT",
+                                        inputs = {
+                                            0 : inverted_add_squares.outputs["Value"],
+                                        },
+                                    )
+        
+        combine_normal = self.add_shader_node(anno_shader, "ShaderNodeCombineRGB",
+                                        position = (4, 2),
+                                        inputs = {
+                                            "R" : separate_normal.outputs["R"],
+                                            "G" : separate_normal.outputs["G"],
+                                            "B" : normal_blue.outputs["Value"],
+                                        },
+                                    )
+        normal_map = self.add_shader_node(anno_shader, "ShaderNodeNormalMap",
+                                        position = (5, 2),
+                                        default_inputs = {
+                                            0 : 1.0,
+                                        },
+                                        inputs = {
+                                            "Color" : combine_normal.outputs["Image"],
+                                        },
+                                    )
+        height_bw = self.add_shader_node(anno_shader, "ShaderNodeRGBToBW",
+                                        position = (5, 3),
+                                        inputs = {
+                                            "Color" : inputs["cHeight"],
+                                        },
+                                    )
+        bump_map = self.add_shader_node(anno_shader, "ShaderNodeBump",
+                                        position = (6, 2),
+                                        default_inputs = {
+                                            0 : 0.5,
+                                        },
+                                        inputs = {
+                                            "Height" : height_bw.outputs["Val"],
+                                            "Normal" : normal_map.outputs["Normal"],
+                                        },
+                                    )
+        #Roughness
+        roughness = self.add_shader_node(anno_shader, "ShaderNodeMath",
+                                position = (3, 0),
+                                operation = "SUBTRACT",
+                                inputs = {
+                                    1 : inputs["Glossiness"],
+                                },
+                                default_inputs = {
+                                    0 : 1.0
+                                },
+                            )
+        #Metallic
+        metallic = self.add_shader_node(anno_shader, "ShaderNodeRGBToBW",
+                                        position = (1, 3),
+                                        inputs = {
+                                            "Color" : inputs["cMetallic"],
+                                        },
+                                    )
+        #Emission
+        scaled_emissive_color = self.add_shader_node(anno_shader, "ShaderNodeVectorMath",         
+                            operation = "SCALE",
+                            name = "EmissionScale",
+                            position = (1, -1),
+                            default_inputs = {
+                                "Scale": 10,
+                            },
+                            inputs = {
+                                "Vector" : inputs["cEmissiveColor"],
+                            }
+        )
+        combined_emissive_color = self.add_shader_node(anno_shader, "ShaderNodeVectorMath",         
+                            operation = "MULTIPLY",
+                            position = (2, -1),
+                            inputs = {
+                                0 : final_diffuse.outputs["Color"],
+                                1 : scaled_emissive_color.outputs["Vector"],
+                            }
+        )
+        object_info = self.add_shader_node(anno_shader, "ShaderNodeObjectInfo",         
+                            position = (1, -2),
+        )
+        random_0_1 = self.add_shader_node(anno_shader, "ShaderNodeMath",  
+                            operation = "FRACT",   
+                            position = (2, -2),
+                            inputs = {
+                                "Value" : object_info.outputs["Location"],
+                            }
+        )
+        color_ramp_node = self.add_shader_node(anno_shader, "ShaderNodeValToRGB",  
+                            position = (3, -2),
+                            inputs = {
+                                "Fac" : random_0_1.outputs["Value"],
+                            }
+        )
 
+        color_ramp = color_ramp_node.color_ramp
+        color_ramp.elements[0].color = (1.0, 0.0, 0.0,1)
+        color_ramp.elements[1].position = (2.0/3.0)
+        color_ramp.elements[1].color = (0.0, 0.0, 1.0,1)
+        
+        color_ramp.elements.new(1.0/3.0)
+        color_ramp.elements[1].color = (0.0, 1.0, 0.0,1)
+        color_ramp.interpolation = "CONSTANT"
+        
+        location_masked_emission = self.add_shader_node(anno_shader, "ShaderNodeVectorMath",         
+                            operation = "MULTIPLY",
+                            position = (4, -2),
+                            inputs = {
+                                0 : color_ramp_node.outputs["Color"],
+                                1 : inputs["cNightGlow"],
+                            }
+        )
+        
+        final_emission_color = self.add_shader_node(anno_shader, "ShaderNodeMixRGB",         
+                            blend_type = "MIX",
+                            position = (5, -1),
+                            default_inputs = {
+                                "Color1" : (0.0, 0.0 ,0.0, 1.0)
+                            },
+                            inputs = {
+                                "Fac" : location_masked_emission.outputs["Vector"],
+                                "Color2" : combined_emissive_color.outputs["Vector"],
+                            }
+        )
+        
+        bsdf = self.add_shader_node(anno_shader, "ShaderNodeBsdfPrincipled", 
+                                        position = (4, 0), 
+                                        inputs = {
+                                            "Alpha" : inputs["Alpha"],
+                                            "Roughness" : roughness.outputs["Value"],
+                                            "Normal" : bump_map.outputs["Normal"],
+                                            "Base Color" : final_diffuse.outputs["Color"],
+                                            "Metallic" : metallic.outputs["Val"],
+                                            "Emission Strength" : inputs["EmissionStrength"],
+                                            "Emission" : final_emission_color.outputs["Color"],
+                                            
+                                            
+                                        },
+                                    )
+        outputs = self.add_shader_node(anno_shader, "NodeGroupOutput", 
+                                        position = (5, 0), 
+                                        inputs = {
+                                            "Shader" : bsdf.outputs["BSDF"]
+                                        },
+                                    )
+
+    
+    def add_anno_shader(self, nodes):
+        group = nodes.new(type='ShaderNodeGroup')
+        if not "AnnoShader" in bpy.data.node_groups:
+            self.create_anno_shader()            
+        group.node_tree = bpy.data.node_groups["AnnoShader"]
+        return group
         
     def as_blender_material(self):
+
         if self.get_material_cache_key() in Material.materialCache:
             return Material.materialCache[self.get_material_cache_key()]
         
@@ -731,10 +992,10 @@ class Material:
         
         material.dynamic_properties.from_node(self.node)
         material.use_nodes = True
-        bsdf = material.node_tree.nodes["Principled BSDF"]
         
         positioning_unit = (300, 300)
         positioning_offset = (0, 3 * positioning_unit[1])
+        
         
         for i, texture_name in enumerate(self.texture_definitions.keys()):
             texture_node = material.node_tree.nodes.new('ShaderNodeTexImage')
@@ -755,108 +1016,14 @@ class Material:
                 extension = ".psd"
             texture_node.anno_properties.original_file_extension = extension
         
-        # Linking the textures in the shader
-        nodes = material.node_tree.nodes
-            
-        # Diffuse
-        rgb = material.node_tree.nodes.new("ShaderNodeCombineRGB")
-        rgb.name = "cDiffuseColor"
-        rgb.label = "cDiffuseColor"
-        rgb.inputs[0].default_value = self.colors["cDiffuseColor"][0]
-        rgb.inputs[1].default_value = self.colors["cDiffuseColor"][1]
-        rgb.inputs[2].default_value = self.colors["cDiffuseColor"][2]
-        rgb.location.x -= 3 * positioning_unit[0] - positioning_offset[0]
-        rgb.location.y -= 0 * positioning_unit[1] - positioning_offset[1]
+        node_tree = material.node_tree
+        links = node_tree.links
+        nodes = node_tree.nodes
         
-        mix_rgb_diff = material.node_tree.nodes.new("ShaderNodeMixRGB")
-        mix_rgb_diff.inputs[0].default_value = 1.0
-        mix_rgb_diff.blend_type = "MULTIPLY"
-        mix_rgb_diff.location.x -= 2 * positioning_unit[0] - positioning_offset[0]
-        mix_rgb_diff.location.y -= 0 * positioning_unit[1] - positioning_offset[1]
-
-        material.node_tree.links.new(mix_rgb_diff.inputs['Color1'], nodes["cDiffuseColor"].outputs['Image'])
-        material.node_tree.links.new(mix_rgb_diff.inputs['Color2'], nodes[self.texture_names["diffuse"]].outputs['Color'])
+        anno_shader = self.add_anno_shader(nodes)
+        material.node_tree.nodes.remove(nodes["Principled BSDF"])
         
-        material.node_tree.links.new(bsdf.inputs['Base Color'], mix_rgb_diff.outputs['Color'])
-        material.node_tree.links.new(bsdf.inputs['Alpha'], nodes[self.texture_names["diffuse"]].outputs['Alpha'])
-        # Normal
-        if nodes[self.texture_names["normal"]].image:
-            nodes[self.texture_names["normal"]].image.colorspace_settings.name = "Raw"
-        if nodes[self.texture_names["height"]].image:
-            nodes[self.texture_names["height"]].image.colorspace_settings.name = "Raw"
-            
-        rgbToBW = material.node_tree.nodes.new("ShaderNodeRGBToBW")
-        rgbToBW.location.x -= 3 * positioning_unit[0] - positioning_offset[0]
-        rgbToBW.location.y -= 5 * positioning_unit[1] - positioning_offset[1]
-        
-        bump = material.node_tree.nodes.new("ShaderNodeBump")
-        bump.location.x -= 1 * positioning_unit[0] - positioning_offset[0]
-        bump.location.y -= 4 * positioning_unit[1] - positioning_offset[1]
-        bump.inputs["Strength"].default_value = 0.2
-        
-        seperateRGB = material.node_tree.nodes.new("ShaderNodeSeparateRGB")
-        seperateRGB.location.x -= 3 * positioning_unit[0] - positioning_offset[0]
-        seperateRGB.location.y -= positioning_unit[1] - positioning_offset[1]
-        material.node_tree.links.new(seperateRGB.inputs['Image'], nodes[self.texture_names["normal"]].outputs['Color'])
-        
-        combineRGB = material.node_tree.nodes.new(type="ShaderNodeCombineRGB")
-        combineRGB.location.x -= 2 * positioning_unit[0] - positioning_offset[0]
-        combineRGB.location.y -= positioning_unit[1] - positioning_offset[1]
-        material.node_tree.links.new(combineRGB.inputs['R'], seperateRGB.outputs['R'])
-        material.node_tree.links.new(combineRGB.inputs['G'], seperateRGB.outputs['G'])
-        combineRGB.inputs[2].default_value = 1
-        
-        normal_node = material.node_tree.nodes.new("ShaderNodeNormalMap")
-        normal_node.location.x -= 1 * positioning_unit[0] - positioning_offset[0]
-        normal_node.location.y -= 0 - positioning_offset[1]
-        
-        material.node_tree.links.new(normal_node.inputs['Color'], combineRGB.outputs['Image'])
-        
-        
-        material.node_tree.links.new( rgbToBW.inputs['Color'], nodes[self.texture_names["height"]].outputs["Color"])
-        material.node_tree.links.new(bump.inputs['Height'], rgbToBW.outputs['Val'])
-        material.node_tree.links.new(bump.inputs['Normal'], normal_node.outputs['Normal'])
-        material.node_tree.links.new(bsdf.inputs['Normal'], bump.outputs['Normal'])
-        
-        invertGlossy = material.node_tree.nodes.new("ShaderNodeMath")
-        invertGlossy.operation = 'SUBTRACT'
-        invertGlossy.inputs[0].default_value = 1
-        invertGlossy.location.x -= 1 * positioning_unit[0] - positioning_offset[0]
-        invertGlossy.location.y -= 1 * positioning_unit[1] - positioning_offset[1]
-        material.node_tree.links.new(invertGlossy.inputs[1], nodes[self.texture_names["normal"]].outputs['Alpha'])
-        material.node_tree.links.new(bsdf.inputs['Roughness'], invertGlossy.outputs['Value'])
-        # Metal
-        if nodes[self.texture_names["metallic"]].image:
-            nodes[self.texture_names["metallic"]].image.colorspace_settings.name = "Raw"
-        rgbToBW = material.node_tree.nodes.new("ShaderNodeRGBToBW")
-        rgbToBW.location.x -= 2 * positioning_unit[0] - positioning_offset[0]
-        rgbToBW.location.y -= 2 * positioning_unit[1] - positioning_offset[1]
-        material.node_tree.links.new(rgbToBW.inputs["Color"], nodes[self.texture_names["metallic"]].outputs['Color'])
-        material.node_tree.links.new(bsdf.inputs['Metallic'], rgbToBW.outputs['Val'])
-        
-        # Dye
-        if nodes[self.texture_names["dye"]].image:
-            nodes[self.texture_names["dye"]].image.colorspace_settings.name = "Raw"
-        rgbToBW = material.node_tree.nodes.new("ShaderNodeRGBToBW")
-        rgbToBW.location.x -= 3 * positioning_unit[0] - positioning_offset[0]
-        rgbToBW.location.y -= 6 * positioning_unit[1] - positioning_offset[1]
-        
-        mix_rgb = material.node_tree.nodes.new("ShaderNodeMixRGB")
-        mix_rgb.blend_type = "MULTIPLY"
-        mix_rgb.inputs["Color2"].default_value = (0.5, 0.0, 0.0, 1.0)
-        mix_rgb.location.x -= 2 * positioning_unit[0] - positioning_offset[0]
-        mix_rgb.location.y -= 3 * positioning_unit[1] - positioning_offset[1]
-
-
-        material.node_tree.links.new(rgbToBW.inputs["Color"], nodes[self.texture_names["dye"]].outputs['Color'])
-        material.node_tree.links.new(mix_rgb.inputs["Color1"], mix_rgb_diff.outputs['Color'])
-        material.node_tree.links.new(mix_rgb.inputs["Fac"], rgbToBW.outputs['Val'])
-        
-        
-        final_color = mix_rgb
-        material.node_tree.links.new(bsdf.inputs['Base Color'], final_color.outputs["Color"])
-        #Emission
-        emissive_color = self.add_shader_node(material, "ShaderNodeCombineRGB",
+        emissive_color = self.add_shader_node(node_tree, "ShaderNodeCombineRGB",
                             name = "cEmissiveColor",
                             position = (3, 6.5),
                             default_inputs = {
@@ -866,83 +1033,37 @@ class Material:
                             },
                             inputs = {}
         )
-        scaled_emissive_color = self.add_shader_node(material, "ShaderNodeVectorMath",         
-                            operation = "SCALE",
-                            name = "EmissionScale",
-                            position = (2.25, 6),
+        c_diffuse_mult = self.add_shader_node(node_tree, "ShaderNodeCombineRGB",
+                            name = "cDiffuseColor",
+                            position = (2, 6.5),
                             default_inputs = {
-                                "Scale": 10,
+                                "R": self.colors["cDiffuseColor"][0],
+                                "G": self.colors["cDiffuseColor"][1],
+                                "B": self.colors["cDiffuseColor"][2],
                             },
-                            inputs = {
-                                "Vector" : emissive_color.outputs["Image"],
-                            }
-        )
-        combined_emissive_color = self.add_shader_node(material, "ShaderNodeVectorMath",         
-                            operation = "MULTIPLY",
-                            position = (1.5, 6),
-                            inputs = {
-                                0 : final_color.outputs["Color"],
-                                1 : scaled_emissive_color.outputs["Vector"],
-                            }
-        )
-        object_info = self.add_shader_node(material, "ShaderNodeObjectInfo",         
-                            position = (4, 7),
-        )
-        random_0_1 = self.add_shader_node(material, "ShaderNodeMath",  
-                            operation = "FRACT",   
-                            position = (3.5, 7),
-                            inputs = {
-                                "Value" : object_info.outputs["Location"],
-                            }
-        )
-        color_ramp_node = self.add_shader_node(material, "ShaderNodeValToRGB",  
-                            position = (2.5, 7),
-                            inputs = {
-                                "Fac" : random_0_1.outputs["Value"],
-                            }
-        )
-
-        color_ramp = color_ramp_node.color_ramp
-        color_ramp.elements[0].color = (1.0, 0.0, 0.0,1)
-        color_ramp.elements[1].position = (2.0/3.0)
-        color_ramp.elements[1].color = (0.0, 0.0, 1.0,1)
-        
-        color_ramp.elements.new(1.0/3.0)
-        color_ramp.elements[1].color = (0.0, 1.0, 0.0,1)
-        color_ramp.interpolation = "CONSTANT"
-        
-        location_masked_emission = self.add_shader_node(material, "ShaderNodeVectorMath",         
-                            operation = "MULTIPLY",
-                            position = (1.5, 7),
-                            inputs = {
-                                0 : color_ramp_node.outputs["Color"],
-                                1 : nodes["cNightGlowMap"].outputs["Color"],
-                            }
+                            inputs = {}
         )
         
-        final_emission_color = self.add_shader_node(material, "ShaderNodeMixRGB",         
-                            blend_type = "MIX",
-                            position = (1, 6.5),
-                            default_inputs = {
-                                "Color1" : (0.0, 0.0 ,0.0, 1.0)
-                            },
-                            inputs = {
-                                "Fac" : location_masked_emission.outputs["Vector"],
-                                "Color2" : combined_emissive_color.outputs["Vector"],
-                            }
-        )
-        material.node_tree.links.new(bsdf.inputs['Emission'], final_emission_color.outputs["Color"])
-
-        bsdf.inputs["Emission Strength"].default_value = 0.0
+        links.new(anno_shader.inputs["cDiffuse"], nodes[self.texture_names["diffuse"]].outputs[0])
+        links.new(anno_shader.inputs["cNormal"], nodes[self.texture_names["normal"]].outputs[0])
+        links.new(anno_shader.inputs["cMetallic"], nodes[self.texture_names["metallic"]].outputs[0])
+        links.new(anno_shader.inputs["cHeight"], nodes[self.texture_names["height"]].outputs[0])
+        links.new(anno_shader.inputs["cNightGlow"], nodes[self.texture_names["night_glow"]].outputs[0])
+        links.new(anno_shader.inputs["cDyeMask"], nodes[self.texture_names["dye"]].outputs[0])
+        
+        links.new(anno_shader.inputs["cDiffuseMultiplier"], c_diffuse_mult.outputs[0])
+        links.new(anno_shader.inputs["cEmissiveColor"], emissive_color.outputs[0])
+        
+        links.new(anno_shader.inputs["Alpha"], nodes[self.texture_names["diffuse"]].outputs["Alpha"])
+        links.new(anno_shader.inputs["Glossiness"], nodes[self.texture_names["normal"]].outputs["Alpha"])
+        
+        
+        links.new(nodes["Material Output"].inputs["Surface"], anno_shader.outputs["Shader"])
+        
         
         
         material.blend_method = "CLIP"
 
-        for color_name in self.color_definitions:
-            pass
-            #TODO: Need to store the colors in custom properties.
-            #Using bpy.props.FloatVectorProperty? Is this different from blender_object["propertyname"] = something
-            #Something like this https://blender.stackexchange.com/questions/143072/how-to-make-multiple-float-property-in-python ??
         
         #Store all kinds of properties for export
         for prop, value in self.custom_properties.items():
@@ -952,22 +1073,26 @@ class Material:
         Material.materialCache[self.get_material_cache_key()] = material
         return material
     
-    def add_shader_node(self, material, node_type, **kwargs):
-        node = material.node_tree.nodes.new(node_type)
+    def add_shader_node(self, node_tree, node_type, **kwargs):
+        node = node_tree.nodes.new(node_type)
         positioning_unit = (300, 300)
         positioning_offset = (0, 3 * positioning_unit[1])
         x,y = kwargs.pop("position", (0,0))
-        node.location.x -= x* positioning_unit[0] - positioning_offset[0]
-        node.location.y -= y* positioning_unit[1] - positioning_offset[1]
+        node.location.x = x* positioning_unit[0] - positioning_offset[0]
+        node.location.y = y* positioning_unit[1] - positioning_offset[1]
         if "name" in kwargs and not "label" in kwargs:
             kwargs["label"] = kwargs["name"]
         for input_key, default_value in kwargs.pop("default_inputs", {}).items():
             node.inputs[input_key].default_value = default_value
         for input_key, input_connector in kwargs.pop("inputs", {}).items():
-             material.node_tree.links.new(node.inputs[input_key], input_connector)
+             node_tree.links.new(node.inputs[input_key], input_connector)
         for attr, value in kwargs.items():
             setattr(node, attr, value)
         return node
+    
+    def add_shader_node_to_material(self, material, node_type, **kwargs):
+        nodes = material.node_tree
+        return self.add_shader_node(nodes, node_type, **kwargs)
 ###################################################################################################################
 
 class ClothMaterial(Material):
@@ -1599,7 +1724,10 @@ class IfoFile(AnnoObject):
             "Dummy":IfoCube,
             "BuildBlocker":IfoPlane,
             "FeedbackBlocker":IfoPlane,
+            "PriorityFeedbackBlocker":IfoPlane,
             "UnevenBlocker":IfoPlane,
+            "QuayArea":IfoPlane,
+            "InvisibleQuayArea":IfoPlane,
         }
         for child_node in list(node):
             ifo_cls = ifo_object_by_name.get(child_node.tag, None)
@@ -1670,7 +1798,7 @@ class IfoPlane(AnnoObject):
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         vertices = []
         for pos_node in list(node.findall("Position")):
-            x = parse_float_node(pos_node, "xf")
+            x = - parse_float_node(pos_node, "xf")
             y = - parse_float_node(pos_node, "zf")
             vertices.append((x,y, 0.0))
             node.remove(pos_node)
@@ -1685,7 +1813,7 @@ class IfoPlane(AnnoObject):
             x = vert.co.x
             y = vert.co.y
             position_node = ET.SubElement(node, "Position")
-            ET.SubElement(position_node, "xf").text = format_float(x)
+            ET.SubElement(position_node, "xf").text = format_float(-x)
             ET.SubElement(position_node, "zf").text = format_float(-y)
         return node
 
@@ -1718,6 +1846,7 @@ class Dummy(AnnoObject):
         node = super().default_node()
         node.tag = "Dummy"
         ET.SubElement(node, "Name")
+        ET.SubElement(node, "HeightAdaptationMode").text = "1"
         extents = ET.SubElement(node, "Extents")
         ET.SubElement(extents, "x").text = "0.1"
         ET.SubElement(extents, "y").text = "0.1"
@@ -2020,6 +2149,7 @@ classes = [
     PT_AnnoScenePropertyPanel,
     
     PT_AnnoMaterialObjectPropertyPanel,
+    ConvertCf7DummyToDummy,
     
     XMLPropertyGroup,
     PT_AnnoObjectPropertyPanel,
