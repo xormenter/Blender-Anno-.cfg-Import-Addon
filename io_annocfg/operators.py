@@ -472,7 +472,8 @@ class ExportAnnoModelOperator(Operator, ExportHelper):
             #Delete the old .rdm file first
             if self.path.exists():
                 self.path.unlink()
-            subprocess.call(f"\"{rdm4_path}\" --gltf=P4h_N4b_G4b_B4b_T2h --input \"{self.path.with_suffix('.glb')}\" -n --outdst \"{self.path.parent}\"", shell = True)
+            print(f"Subprocess: \"{rdm4_path}\" --gltf={self.vertex_format} --input \"{self.path.with_suffix('.glb')}\" -n --outdst \"{self.path.parent}\"")
+            subprocess.call(f"\"{rdm4_path}\" --gltf={self.vertex_format} --input \"{self.path.with_suffix('.glb')}\" -n --outdst \"{self.path.parent}\"", shell = True)
     
     def export_glb(self, filepath = None):
         if filepath is None:
