@@ -143,6 +143,7 @@ class ExportAnnoCfg(Operator, ExportHelper):
         with open(cf7_filepath, 'w') as f:
             f.write(cf7tree_string)
         if IO_AnnocfgPreferences.get_path_to_fc_converter().exists():
+            print(f"\"{IO_AnnocfgPreferences.get_path_to_fc_converter()}\" -w \"{cf7_filepath}\" -y -o \"{cf7_filepath.with_suffix('.fc')}\"")
             subprocess.call(f"\"{IO_AnnocfgPreferences.get_path_to_fc_converter()}\" -w \"{cf7_filepath}\" -y -o \"{cf7_filepath.with_suffix('.fc')}\"")
         return
 
