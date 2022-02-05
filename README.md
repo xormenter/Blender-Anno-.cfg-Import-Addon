@@ -39,7 +39,7 @@ With "N", you can show/hide a properties window in the 3D View. There, select "A
 
 You can:
 - Reposition models, props, dummies etc to your liking. Or duplicate or delete them.
-- Edit meshes. When done, keep the Model selected and go to Export->Anno Model (.rdm, .glb). You can directly safe it as .rdm. Please export it to a subfolder of the rda folder or your scenes mod folder.
+- Edit meshes. When done, keep the Model selected and go to Export->Anno Model (.rdm, .glb). You can directly safe it as .rdm. Please export it to a subfolder of the rda folder or your scenes mod folder. I suggest to use `Ctrl+A->All Transforms` before exporting.
 - Edit the properties in the Anno Object Tab.
 - Change material texture files - but make sure that the texture path is a subpath of either the rda folder or your current mod directory, otherwise the addon cannot convert the path to a relative /data/graphics/... path. The same goes for FileNames of other objects. If you want to add new materials, you need to duplicate existing materials imported from .cfg files and use that one. Otherwise it will lack important xml entries and will not work in the game itself.
 - Add new props with the import prop functionality. For this, select the parent PropContainer first.
@@ -49,6 +49,8 @@ You can:
 Tip: The .ifo and .cf7 objects might be distracting. If you shift click on the eye next to the IFOFILE or CF7FILE object in the scene tree view, you can hide them all.
 
 ## Exporting
+0. If you edited models, you must export them to .rdm first. (This automatically adapts their FileName to your export location).
+
 1. Select your MAIN_FILE object.
 2. Go the Export->Anno (.cfg) and select where you want to export to. 
 3. The exporter will create the .cfg (and .ifo and .cf7) file(s).
