@@ -9,7 +9,7 @@ Blender (tested with 2.93)
 To use the automati conversion, you need:
 - rdm4 converter https://github.com/lukts30/rdm4
 - texconv.exe https://github.com/microsoft/DirectXTex
-- .fc Converter (AnnoFCConverter.exe) https://github.com/taubenangriff/AnnoFCConverter
+- .fc Converter (AnnoFCConverter.exe) (please use this one, as it doesn't have a problem with newlines at the end: https://github.com/jakobharder/AnnoFCConverter)
 And of course the .rda explorer to unpack the game files: https://github.com/lysannschlegel/RDAExplorer
 
 # Installation
