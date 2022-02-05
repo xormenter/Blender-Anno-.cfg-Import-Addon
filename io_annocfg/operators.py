@@ -139,7 +139,7 @@ class ExportAnnoCfg(Operator, ExportHelper):
         cf7tree = ET.ElementTree(cf7root)
         ET.indent(cf7tree, space="\t", level=0)
         cf7tree_string = ET.tostring(cf7root, encoding='unicode', method='xml')
-        cf7tree_string = cf7tree_string.replace("</cf7_imaginary_root>", "").replace("<cf7_imaginary_root>","")
+        cf7tree_string = cf7tree_string.replace("</cf7_imaginary_root>", "").replace("<cf7_imaginary_root>","").rstrip("\n")
         with open(cf7_filepath, 'w') as f:
             f.write(cf7tree_string)
         if IO_AnnocfgPreferences.get_path_to_fc_converter().exists():
