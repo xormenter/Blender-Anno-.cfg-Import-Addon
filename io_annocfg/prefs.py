@@ -17,7 +17,7 @@
 # ##### END GPL LICENSE BLOCK #####
 import bpy
 from bpy.types import AddonPreferences, Scene
-from bpy.props import StringProperty, EnumProperty
+from bpy.props import StringProperty, EnumProperty, BoolProperty
 
 from pathlib import Path
 
@@ -28,7 +28,7 @@ class IO_AnnocfgPreferences(AddonPreferences):
         name = "Path to rda Folder",
         description = "Path where you unpacked the Anno rda files. Should contain the data folder.",
         subtype='FILE_PATH',
-        default = "",
+        default = "C:\\Users\\Lars\\Documents\\Anno 1800\\ModdingRDAExplorer-1.4.0.0\\rda",
     )
     path_to_rdm4 : StringProperty( # type: ignore
         name = "Path to rdm4-bin.exe",
@@ -57,7 +57,11 @@ class IO_AnnocfgPreferences(AddonPreferences):
             ("2", "Low", "Low (_2.dss)"),
         ],
         default='0')
-
+    enable_splines : BoolProperty( # type: ignore
+        name = "Import/Export Spline Data (Experimental)",
+        description = "If .fc splines are imported/exported. Currently, only supports ControlPoints",
+        default = False
+    )
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "path_to_rda_folder")
@@ -81,6 +85,9 @@ class IO_AnnocfgPreferences(AddonPreferences):
     @classmethod
     def get_texture_quality(cls):
         return bpy.context.preferences.addons[__package__].preferences.texture_quality
+    @classmethod
+    def splines_enabled(cls):
+        return bpy.context.preferences.addons[__package__].preferences.enable_splines
 
 classes = (
     IO_AnnocfgPreferences,
