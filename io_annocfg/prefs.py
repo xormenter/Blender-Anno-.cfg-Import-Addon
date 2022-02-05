@@ -59,7 +59,7 @@ class IO_AnnocfgPreferences(AddonPreferences):
         default='0')
     enable_splines : BoolProperty( # type: ignore
         name = "Import/Export Spline Data (Experimental)",
-        description = "If .fc splines are imported/exported. Currently, only supports ControlPoints",
+        description = "If .fc splines are imported/exported.",
         default = False
     )
     def draw(self, context):
@@ -69,6 +69,7 @@ class IO_AnnocfgPreferences(AddonPreferences):
         layout.prop(self, "path_to_texconv")
         layout.prop(self, "path_to_fc_converter")
         layout.prop(self, "texture_quality")
+        layout.prop(self, "enable_splines")
 
     @classmethod
     def get_path_to_rda_folder(cls):
