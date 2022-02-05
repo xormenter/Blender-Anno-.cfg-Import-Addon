@@ -28,7 +28,7 @@ class IO_AnnocfgPreferences(AddonPreferences):
         name = "Path to rda Folder",
         description = "Path where you unpacked the Anno rda files. Should contain the data folder.",
         subtype='FILE_PATH',
-        default = "C:\\Users\\Lars\\Documents\\Anno 1800\\ModdingRDAExplorer-1.4.0.0\\rda",
+        default = "",
     )
     path_to_rdm4 : StringProperty( # type: ignore
         name = "Path to rdm4-bin.exe",
