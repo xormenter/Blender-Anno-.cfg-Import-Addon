@@ -2190,8 +2190,8 @@ class MainFile(AnnoObject):
 
 anno_object_classes = [
     NoAnnoObject, MainFile, Model, Cf7File,
-    SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup, Spline,
-    Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig,SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, Material, IfoFile
+    SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup,
+    Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig,SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, Material, IfoFile, Spline
 ]
 
 
