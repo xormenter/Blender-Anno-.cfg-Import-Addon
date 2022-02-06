@@ -848,7 +848,7 @@ class Material:
         normal_map = self.add_shader_node(anno_shader, "ShaderNodeNormalMap",
                                         position = (5, 2),
                                         default_inputs = {
-                                            0 : 1.0,
+                                            0 : 0.5,
                                         },
                                         inputs = {
                                             "Color" : combine_normal.outputs["Image"],
@@ -1004,11 +1004,13 @@ class Material:
             texture = self.get_texture(texture_path)
             if texture is not None:
                 texture_node.image = texture
+                if "Norm" in texture_name or "Metal" in texture_name or "Height" in texture_name:
+                    texture_node.image.colorspace_settings.name = 'Non-Color'
             texture_node.name = texture_name
             texture_node.label = texture_name
             texture_node.location.x -= 4 * positioning_unit[0] - positioning_offset[0]
             texture_node.location.y -= i * positioning_unit[1] - positioning_offset[1]
-            
+
             texture_node.anno_properties.enabled = self.texture_enabled[texture_name]
             extension = texture_path.suffix
             if extension not in [".png", ".psd"]:
@@ -2142,6 +2144,24 @@ class Spline(AnnoObject):
             spline.bezier_points[i].co.z = transform.location[2]
             spline.bezier_points[i].handle_left_type = "AUTO"
             spline.bezier_points[i].handle_right_type = "AUTO"
+            
+        # obj.data.splines.new("BEZIER")
+        # spline = obj.data.splines[1]
+        # control_points = node.find("ApproximationPoints")
+        # if control_points is None:
+        #     return obj
+        # spline.bezier_points.add(len(control_points))
+        # for i, control_point_node in enumerate(control_points):
+        #     x = get_float(control_point_node, "x")
+        #     y = get_float(control_point_node, "y")
+        #     z = get_float(control_point_node, "z")
+        #     transform = Transform(loc = [x,y,z], anno_coords = True)
+        #     transform.convert_to_blender_coords()
+        #     spline.bezier_points[i].co.x = transform.location[0]
+        #     spline.bezier_points[i].co.y = transform.location[1]
+        #     spline.bezier_points[i].co.z = transform.location[2]
+        #     spline.bezier_points[i].handle_left_type = "AUTO"
+        #     spline.bezier_points[i].handle_right_type = "AUTO"
             
         return obj   
     
