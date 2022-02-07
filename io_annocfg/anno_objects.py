@@ -11,6 +11,7 @@ from typing import Tuple, List, NewType, Any, Union, Dict, Optional, TypeVar, Ty
 from abc import ABC, abstractmethod
 from bpy.props import EnumProperty, BoolProperty, PointerProperty, IntProperty, FloatProperty, CollectionProperty, StringProperty, FloatVectorProperty
 from bpy.types import PropertyGroup, Panel, Operator, UIList
+import bmesh
 import sys
 def str_to_class(classname):
     return getattr(sys.modules[__name__], classname)
@@ -140,6 +141,18 @@ class Transform:
             return
         for v in object.data.vertices:
             v.co.x *= -1.0
+            
+        #Inverting normals for import AND Export they are wrong because of scaling on the x axis.
+        #Warn people that this will break exports from .blend files made with an earlier version!!!
+        mesh = object.data
+        bm = bmesh.new()
+        bm.from_mesh(mesh) # load bmesh
+        for f in bm.faces:
+             f.normal_flip()
+        bm.normal_update() # not sure if req'd
+        bm.to_mesh(mesh)
+        mesh.update()
+        bm.clear() #.. clear before load next
     
     def apply_to(self, object):
         if self.anno_coords:
@@ -275,6 +288,7 @@ class ColorConverter(Converter):
 converter_by_tag = {
     "ConfigType": StringConverter,
     "FileName" : StringConverter,
+    "Name" : StringConverter,
     "AdaptTerrainHeight" : BoolConverter,
     "HeightAdaptationMode" : BoolConverter,
     "DIFFUSE_ENABLED" : BoolConverter,
@@ -388,8 +402,10 @@ class XMLPropertyGroup(PropertyGroup):
                         ]:
             for prop in property_group:
                 value_string = converter.to_string(prop.value)
-                    
-                find_or_create(target_node, prop.tag).text = value_string
+                #It is better to always create a new subelement - otherwise there can only be one of each tag.
+                #Or does this create any problems?
+                #find_or_create(target_node, prop.tag).text = value_string
+                ET.SubElement(target_node, prop.tag).text = value_string
         for dyn_prop in self.dynamic_properties:
             subnode = ET.SubElement(target_node, dyn_prop.tag)
             dyn_prop.to_node(subnode)
@@ -847,7 +863,7 @@ class Material:
         normal_map = self.add_shader_node(anno_shader, "ShaderNodeNormalMap",
                                         position = (5, 2),
                                         default_inputs = {
-                                            0 : 1.0,
+                                            0 : 0.5,
                                         },
                                         inputs = {
                                             "Color" : combine_normal.outputs["Image"],
@@ -1003,11 +1019,13 @@ class Material:
             texture = self.get_texture(texture_path)
             if texture is not None:
                 texture_node.image = texture
+                if "Norm" in texture_name or "Metal" in texture_name or "Height" in texture_name:
+                    texture_node.image.colorspace_settings.name = 'Non-Color'
             texture_node.name = texture_name
             texture_node.label = texture_name
             texture_node.location.x -= 4 * positioning_unit[0] - positioning_offset[0]
             texture_node.location.y -= i * positioning_unit[1] - positioning_offset[1]
-            
+
             texture_node.anno_properties.enabled = self.texture_enabled[texture_name]
             extension = texture_path.suffix
             if extension not in [".png", ".psd"]:
@@ -1616,6 +1634,9 @@ class Prop(AnnoObject):
         imported_obj = import_model_to_scene(model_filename)
         if imported_obj is None:
             return add_empty_to_scene()
+
+        
+        #materials
         cls.apply_materials_to_object(imported_obj, [material])
         return imported_obj
 
@@ -1670,7 +1691,7 @@ class Light(AnnoObject):
         return node
     @classmethod
     def property_node_to_node(self, property_node, obj):
-        property_node = super().node_to_property_node(property_node, obj)
+        property_node = super().property_node_to_node(property_node, obj)
         diffuse_color = obj.data.color
         ET.SubElement(property_node, "Diffuse.r").text = format_float(diffuse_color[0])
         ET.SubElement(property_node, "Diffuse.g").text = format_float(diffuse_color[1])
@@ -2089,6 +2110,11 @@ class Cf7File(AnnoObject):
         for group_node in list(node.find("DummyRoot/Groups")):
             Cf7DummyGroup.xml_to_blender(group_node, obj)
             node.find("DummyRoot/Groups").remove(group_node)
+        if not IO_AnnocfgPreferences.splines_enabled():
+            return
+        for spline_data in list(node.findall("SplineData/v")):
+            Spline.xml_to_blender(spline_data, obj)
+            node.find("SplineData").remove(spline_data)
     @classmethod
     def add_children_from_obj(cls, obj, node, child_map):
         dummy_groups_node = find_or_create(node, "DummyRoot/Groups")
@@ -2097,10 +2123,89 @@ class Cf7File(AnnoObject):
             if subcls != Cf7DummyGroup:
                 continue
             Cf7DummyGroup.blender_to_xml(child_obj, dummy_groups_node, child_map)
+        if not IO_AnnocfgPreferences.splines_enabled():
+            return
+        spline_data_node = find_or_create(node, "SplineData")
+        for spline_obj in child_map.get(obj.name, []):
+            subcls = get_anno_object_class(spline_obj)
+            if subcls != Spline:
+                continue
+            splinenode_v = Spline.blender_to_xml(spline_obj, spline_data_node, child_map)
+            ET.SubElement(spline_data_node, "k").text = get_text(splinenode_v, "Name", "UNKNOWN_KEY")
+    
 class NoAnnoObject(AnnoObject):
     pass
 
 
+class Spline(AnnoObject):
+    has_transform = False
+    has_name = False
+    
+    @classmethod
+    def add_blender_object_to_scene(cls, node) -> BlenderObject:
+        bpy.ops.curve.primitive_bezier_curve_add()
+
+        obj = bpy.context.active_object
+        spline = obj.data.splines[0]
+        control_points = node.find("ControlPoints")
+        if control_points is None:
+            return obj
+        spline.bezier_points.add(len(control_points)-2)
+        for i, control_point_node in enumerate(control_points):
+            x = get_float(control_point_node, "x")
+            y = get_float(control_point_node, "y")
+            z = get_float(control_point_node, "z")
+            transform = Transform(loc = [x,y,z], anno_coords = True)
+            transform.convert_to_blender_coords()
+            spline.bezier_points[i].co.x = transform.location[0]
+            spline.bezier_points[i].co.y = transform.location[1]
+            spline.bezier_points[i].co.z = transform.location[2]
+            spline.bezier_points[i].handle_left_type = "AUTO"
+            spline.bezier_points[i].handle_right_type = "AUTO"
+            
+        # obj.data.splines.new("BEZIER")
+        # spline = obj.data.splines[1]
+        # control_points = node.find("ApproximationPoints")
+        # if control_points is None:
+        #     return obj
+        # spline.bezier_points.add(len(control_points))
+        # for i, control_point_node in enumerate(control_points):
+        #     x = get_float(control_point_node, "x")
+        #     y = get_float(control_point_node, "y")
+        #     z = get_float(control_point_node, "z")
+        #     transform = Transform(loc = [x,y,z], anno_coords = True)
+        #     transform.convert_to_blender_coords()
+        #     spline.bezier_points[i].co.x = transform.location[0]
+        #     spline.bezier_points[i].co.y = transform.location[1]
+        #     spline.bezier_points[i].co.z = transform.location[2]
+        #     spline.bezier_points[i].handle_left_type = "AUTO"
+        #     spline.bezier_points[i].handle_right_type = "AUTO"
+            
+        return obj   
+    
+    @classmethod
+    def node_to_property_node(self, node, obj):
+        node = super().node_to_property_node(node, obj)
+        get_text_and_delete(node, "ControlPoints")
+        return node
+    
+    @classmethod
+    def property_node_to_node(self, property_node, obj):
+        node = super().property_node_to_node(property_node, obj)
+        control_points = find_or_create(node, "ControlPoints")
+        spline = obj.data.splines[0]
+        for i, point in enumerate(spline.bezier_points):
+            point_node = ET.SubElement(control_points, "i")
+            x = spline.bezier_points[i].co.x
+            y = spline.bezier_points[i].co.y
+            z = spline.bezier_points[i].co.z
+            transform = Transform(loc = [x,y,z], anno_coords = False)
+            transform.convert_to_anno_coords()
+            ET.SubElement(point_node, "x").text = format_float(transform.location[0])
+            ET.SubElement(point_node, "y").text = format_float(transform.location[1])
+            ET.SubElement(point_node, "z").text = format_float(transform.location[2])
+        return node
+ 
 
 
 class MainFile(AnnoObject):
@@ -2123,8 +2228,8 @@ class MainFile(AnnoObject):
 
 anno_object_classes = [
     NoAnnoObject, MainFile, Model, Cf7File,
-    SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup, 
-    Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig,SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, Material, IfoFile
+    SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup,
+    Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig,SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, Material, IfoFile, Spline
 ]
 
 

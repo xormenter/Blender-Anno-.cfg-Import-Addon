@@ -17,7 +17,7 @@
 # ##### END GPL LICENSE BLOCK #####
 import bpy
 from bpy.types import AddonPreferences, Scene
-from bpy.props import StringProperty, EnumProperty
+from bpy.props import StringProperty, EnumProperty, BoolProperty
 
 from pathlib import Path
 
@@ -57,7 +57,11 @@ class IO_AnnocfgPreferences(AddonPreferences):
             ("2", "Low", "Low (_2.dss)"),
         ],
         default='0')
-
+    enable_splines : BoolProperty( # type: ignore
+        name = "Import/Export Spline Data (Experimental)",
+        description = "If .fc splines are imported/exported.",
+        default = False
+    )
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "path_to_rda_folder")
@@ -65,6 +69,7 @@ class IO_AnnocfgPreferences(AddonPreferences):
         layout.prop(self, "path_to_texconv")
         layout.prop(self, "path_to_fc_converter")
         layout.prop(self, "texture_quality")
+        layout.prop(self, "enable_splines")
 
     @classmethod
     def get_path_to_rda_folder(cls):
@@ -81,6 +86,9 @@ class IO_AnnocfgPreferences(AddonPreferences):
     @classmethod
     def get_texture_quality(cls):
         return bpy.context.preferences.addons[__package__].preferences.texture_quality
+    @classmethod
+    def splines_enabled(cls):
+        return bpy.context.preferences.addons[__package__].preferences.enable_splines
 
 classes = (
     IO_AnnocfgPreferences,
