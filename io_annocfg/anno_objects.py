@@ -141,6 +141,18 @@ class Transform:
             return
         for v in object.data.vertices:
             v.co.x *= -1.0
+            
+        #Inverting normals for import AND Export they are wrong because of scaling on the x axis.
+        #Warn people that this will break exports from .blend files made with an earlier version!!!
+        mesh = object.data
+        bm = bmesh.new()
+        bm.from_mesh(mesh) # load bmesh
+        for f in bm.faces:
+             f.normal_flip()
+        bm.normal_update() # not sure if req'd
+        bm.to_mesh(mesh)
+        mesh.update()
+        bm.clear() #.. clear before load next
     
     def apply_to(self, object):
         if self.anno_coords:
@@ -1622,16 +1634,7 @@ class Prop(AnnoObject):
         imported_obj = import_model_to_scene(model_filename)
         if imported_obj is None:
             return add_empty_to_scene()
-        #Todo add inverting normals for import AND Export they are wrong because of scaling on the x axis...
-        # mesh = imported_obj.data
-        # bm = bmesh.new()
-        # bm.from_mesh(mesh) # load bmesh
-        # for f in bm.faces:
-        #     f.normal_flip()
-        # bm.normal_update() # not sure if req'd
-        # bm.to_mesh(mesh)
-        # mesh.update()
-        # bm.clear() #.. clear before load next
+
         
         #materials
         cls.apply_materials_to_object(imported_obj, [material])
