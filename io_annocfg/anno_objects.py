@@ -11,6 +11,7 @@ from typing import Tuple, List, NewType, Any, Union, Dict, Optional, TypeVar, Ty
 from abc import ABC, abstractmethod
 from bpy.props import EnumProperty, BoolProperty, PointerProperty, IntProperty, FloatProperty, CollectionProperty, StringProperty, FloatVectorProperty
 from bpy.types import PropertyGroup, Panel, Operator, UIList
+import bmesh
 import sys
 def str_to_class(classname):
     return getattr(sys.modules[__name__], classname)
@@ -389,8 +390,10 @@ class XMLPropertyGroup(PropertyGroup):
                         ]:
             for prop in property_group:
                 value_string = converter.to_string(prop.value)
-                    
-                find_or_create(target_node, prop.tag).text = value_string
+                #It is better to always create a new subelement - otherwise there can only be one of each tag.
+                #Or does this create any problems?
+                #find_or_create(target_node, prop.tag).text = value_string
+                ET.SubElement(target_node, prop.tag).text = value_string
         for dyn_prop in self.dynamic_properties:
             subnode = ET.SubElement(target_node, dyn_prop.tag)
             dyn_prop.to_node(subnode)
@@ -1619,6 +1622,18 @@ class Prop(AnnoObject):
         imported_obj = import_model_to_scene(model_filename)
         if imported_obj is None:
             return add_empty_to_scene()
+        #Todo add inverting normals for import AND Export they are wrong because of scaling on the x axis...
+        # mesh = imported_obj.data
+        # bm = bmesh.new()
+        # bm.from_mesh(mesh) # load bmesh
+        # for f in bm.faces:
+        #     f.normal_flip()
+        # bm.normal_update() # not sure if req'd
+        # bm.to_mesh(mesh)
+        # mesh.update()
+        # bm.clear() #.. clear before load next
+        
+        #materials
         cls.apply_materials_to_object(imported_obj, [material])
         return imported_obj
 
