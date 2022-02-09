@@ -16,7 +16,7 @@ And of course the .rda explorer to unpack the game files: https://github.com/lys
 1. Install the other tools.
 2. Open blender, go to Edit->Preferences->Addons. Click `Install...` and select the downloaded `io_annocfg.zip` (https://github.com/xormenter/Blender-Anno-.cfg-Import-Addon/releases/tag/v.2.1).
 3. If you haven't done so already, unpack the .rda files (at least the data/graphics part of it) into a single folder. It should look something like this: `C:\whatever\somewhere\rda\data\graphics\...`.  
-4. In the addon preferences, set the rda path to the folder that **contains** your `data\graphics` folder with the unpacked rda files. In this example, that would be `C:\whatever\somewhere\rda`
+4. In the addon preferences, set the rda path to the folder that **contains** your `data` folder with the unpacked rda files. In this example, that would be `C:\whatever\somewhere\rda`
 5. Specify the paths to the `texconv.exe`, `rdm4-bin.exe`, `AnnoFCConverter.exe` executables.
 You are now ready to go!
 
