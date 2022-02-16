@@ -5,7 +5,7 @@ When used with the rdm4 converter and texconv, it will automatically convert .rd
 This means that if you have all those tools, you don't have to convert anything manually and can edit everything directly in Blender.
 
 # Requirements
-Blender v.2.93 (Both lower and higher versions of blender cause issues!)
+Blender **v.2.93** (Both lower and higher versions of blender cause issues!)
 To use the automati conversion, you need:
 - rdm4 converter https://github.com/lukts30/rdm4
 - texconv.exe https://github.com/microsoft/DirectXTex
