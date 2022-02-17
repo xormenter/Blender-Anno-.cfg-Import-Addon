@@ -645,7 +645,7 @@ class Material:
                 instance.textures[texture_name] = ""
                 instance.texture_enabled[texture_name] = shader_node.anno_properties.enabled
                 continue
-            filepath_full = bpy.path.abspath(shader_node.image.filepath, library=shader_node.image.library)
+            filepath_full = os.path.realpath(bpy.path.abspath(shader_node.image.filepath, library=shader_node.image.library))
             texture_path = to_data_path(filepath_full)
             #Rename "data/.../some_diff_0.png" to "data/.../some_diff.psd"
             extension = shader_node.anno_properties.original_file_extension
