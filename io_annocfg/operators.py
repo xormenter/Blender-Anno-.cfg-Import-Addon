@@ -9,10 +9,11 @@ from bpy.types import Object as BlenderObject
 import xml.etree.ElementTree as ET
 import os
 import re
+import math
 import subprocess
 import mathutils
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Tuple, List, NewType, Any, Union, Dict, Optional, TypeVar, Type
 
 from .simple_anno_feedback_encoding import SimpleAnnoFeedbackEncoding
@@ -143,7 +144,6 @@ class ExportAnnoCfg(Operator, ExportHelper):
         with open(cf7_filepath, 'w') as f:
             f.write(cf7tree_string)
         if IO_AnnocfgPreferences.get_path_to_fc_converter().exists():
-            print(f"\"{IO_AnnocfgPreferences.get_path_to_fc_converter()}\" -w \"{cf7_filepath}\" -y -o \"{cf7_filepath.with_suffix('.fc')}\"")
             subprocess.call(f"\"{IO_AnnocfgPreferences.get_path_to_fc_converter()}\" -w \"{cf7_filepath}\" -y -o \"{cf7_filepath.with_suffix('.fc')}\"")
         return
 
@@ -351,13 +351,13 @@ class ImportAnnoModelOperator(Operator, ImportHelper):
             self.report({'ERROR_INVALID_INPUT'}, f"Invalid extension")
             return {'CANCELLED'}
         
-        import_helpers[self.path.suffix]()
+        blender_obj = import_helpers[self.path.suffix]()
         
-        self.report({'INFO'}, f'Imported {self.obj.name} from {self.filepath}')
+        self.report({'INFO'}, f'Imported {blender_obj.name} from {self.filepath}')
         return {'FINISHED'}
     
     def import_rdm(self):
-        self.import_glb()  
+        return self.import_glb()  
         
     def import_glb(self):
         data_path = to_data_path(self.path)
@@ -369,6 +369,7 @@ class ImportAnnoModelOperator(Operator, ImportHelper):
             </Config>                  
         """)
         blender_obj = Model.xml_to_blender(node, self.obj)
+        return blender_obj
     @classmethod
     def poll(cls, context):
         if not context.active_object:
@@ -572,6 +573,117 @@ class OBJECT_OT_add_anno_object(Operator, AddObjectHelper):
 
         return {'FINISHED'}
 
+
+class ImportAllPropsOperator(Operator):
+    """Import all props (located in the rda folder) into this file. Use this to create an asset library from this .blend file. 
+    As there are thousands of props, it might take a lot of time (just go outside for a walk or something).
+    Ignores all props that cannot be loaded as a 3d object (when the rdm converter fails). As this happens with almost all decal_details, they are ignored to save time."""
+
+    bl_idname = "anno_props_library.import_all"
+    bl_label = "Import All Anno Props"
+    
+    #model operator from https://blender.stackexchange.com/questions/47663/how-to-handle-modal-operator-events-in-a-single-loop 
+    def invoke(self, context, event):
+        self._iter = iter(self.modal_iter(context))
+        self._iter.send(None)
+        result = self._iter.send(event)
+
+        if 'RUNNING_MODAL' in result:
+            wm = context.window_manager
+            wm.modal_handler_add(self)
+        return result
+
+    def execute(self, context):
+        return self.invoke(context, None)
+
+    def modal(self, context, event):
+        return self._iter.send(event)
+
+    def cancel(self, context):
+        self._iter.send(None)
+        
+    def modal_iter(self, context):
+        event = yield
+        if event is not None:
+            print("Operator.invoke(..., event=%r)" % event.type)
+            if event.type == 'ESC':
+                yield {'CANCELLED'}
+                return
+        # Section typically handled by modal()
+        if event is not None:
+            i = 0
+            y_loc = 0
+            for prop_folder in IO_AnnocfgPreferences.get_path_to_rda_folder().joinpath("data").rglob('graphics'):
+                for p in prop_folder.rglob('*.prp'):
+                    if "decal_detail" in p.name:
+                        continue
+                    print(p)
+                    i+=1
+                    print("iteration, ", i)
+                    if i % 50 == 0:
+                        event = yield {'RUNNING_MODAL'}
+                    data_path = to_data_path(p).as_posix()
+                    node = ET.fromstring(f"""
+                        <Config>
+                            <ConfigType>PROP</ConfigType>
+                            <FileName>{data_path}</FileName>
+                            <Name>PROP_{p.stem}</Name>
+                            <Flags>1</Flags>
+                        </Config>                  
+                    """)
+                    try:
+                        blender_obj = Prop.xml_to_blender(node)
+                        if blender_obj.type == "EMPTY":
+                            bpy.ops.object.delete()
+                            continue
+                    except:
+                        continue
+                    blender_obj.location.y = y_loc
+                    y_loc += 1
+                    blender_obj.name = p.name
+                    blender_obj.asset_mark()
+                    for directory in PurePath(data_path).parts[:-1]:
+                        if directory not in ["graphics", "data"]:
+                            blender_obj.asset_data.tags.new(directory)
+                    bpy.ops.ed.lib_id_generate_preview({"id": blender_obj})
+            yield {'FINISHED'}
+        if event is None:
+            # Section typically handled by cancel()
+            yield  # --> None, since we're closed externally
+
+        yield {'FINISHED'}
+
+        
+    # def execute(self, context):
+    #     i = 0
+    #     y_loc = 0
+    #     for prop_folder in IO_AnnocfgPreferences.get_path_to_rda_folder().joinpath("data").rglob('graphics'):
+    #         for p in prop_folder.rglob('*.prp'):
+    #             print(p)
+    #             i+=1
+    #             print("iteration, ", i)
+    #             data_path = to_data_path(p).as_posix()
+    #             node = ET.fromstring(f"""
+    #                 <Config>
+    #                     <ConfigType>PROP</ConfigType>
+    #                     <FileName>{data_path}</FileName>
+    #                     <Name>PROP_{p.stem}</Name>
+    #                     <Flags>1</Flags>
+    #                 </Config>                  
+    #             """)
+    #             blender_obj = Prop.xml_to_blender(node)
+    #             if blender_obj.type == "EMPTY":
+    #                 continue
+    #             blender_obj.location.y = y_loc
+    #             y_loc += 1
+    #             blender_obj.name = p.name
+    #             blender_obj.asset_mark()
+    #             for directory in PurePath(data_path).parts[:-1]:
+    #                 if directory not in ["graphics", "data"]:
+    #                     blender_obj.asset_data.tags.new(directory)
+    #             bpy.ops.ed.lib_id_generate_preview({"id": blender_obj})
+    #     return {'FINISHED'}
+
 classes = (
     ExportAnnoCfg,
     ImportAnnoCfg,
@@ -579,6 +691,7 @@ classes = (
     ImportAnnoModelOperator,
     ImportAnnoPropOperator,
     OBJECT_OT_add_anno_object,
+    ImportAllPropsOperator,
 )
 
 def add_anno_object_button(self, context):
@@ -602,6 +715,8 @@ def menu_func_import_model(self, context):
 def menu_func_import_prop(self, context):
     self.layout.operator(ImportAnnoPropOperator.bl_idname, text="Anno Prop (.prp)")
 
+def menu_func_import_all_props(self, context):
+    self.layout.operator(ImportAllPropsOperator.bl_idname, text="Import Anno Prop Assets")
 
 
 import_funcs = [
@@ -620,6 +735,7 @@ def register():
         register_class(cls)
     for func in import_funcs:
         bpy.types.TOPBAR_MT_file_import.append(func)
+    bpy.types.TOPBAR_MT_file.append(menu_func_import_all_props)
     for func in export_funcs:
         bpy.types.TOPBAR_MT_file_export.append(func)
 
@@ -631,6 +747,7 @@ def unregister():
         unregister_class(cls)
     for func in import_funcs:
         bpy.types.TOPBAR_MT_file_import.remove(func)
+    bpy.types.TOPBAR_MT_file.remove(menu_func_import_all_props)
     for func in export_funcs:
         bpy.types.TOPBAR_MT_file_export.remove(func)
         

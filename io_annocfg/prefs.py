@@ -62,6 +62,12 @@ class IO_AnnocfgPreferences(AddonPreferences):
         description = "If .fc splines are imported/exported.",
         default = False
     )
+    mirror_models_bool : BoolProperty( # type: ignore
+        name = "Mirror along X",
+        description = "The anno engine mirrors object along the X axis. When enabled, the addon will also mirror meshes along the X axis s.t. text is displayed correctly. However, this means that all .glb files imported directly (using the .glb import instead of the .rmd import) will have the wrong orientation, to avoid this uncheck this box. Keep in mind that when you change this setting, all your exising .blend files will not export properly.",
+        default = True
+    )
+    
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "path_to_rda_folder")
@@ -69,6 +75,7 @@ class IO_AnnocfgPreferences(AddonPreferences):
         layout.prop(self, "path_to_texconv")
         layout.prop(self, "path_to_fc_converter")
         layout.prop(self, "texture_quality")
+        layout.prop(self, "mirror_models_bool")
         layout.prop(self, "enable_splines")
 
     @classmethod
@@ -89,6 +96,9 @@ class IO_AnnocfgPreferences(AddonPreferences):
     @classmethod
     def splines_enabled(cls):
         return bpy.context.preferences.addons[__package__].preferences.enable_splines
+    @classmethod
+    def mirror_models(cls):
+        return bpy.context.preferences.addons[__package__].preferences.mirror_models_bool
 
 classes = (
     IO_AnnocfgPreferences,
