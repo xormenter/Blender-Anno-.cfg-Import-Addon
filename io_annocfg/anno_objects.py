@@ -499,6 +499,7 @@ class PT_AnnoObjectPropertyPanel(Panel):
         row.enabled = False
         if "Cf7" in obj.anno_object_class_str:
             col.operator(ConvertCf7DummyToDummy.bl_idname, text = "Convert to SimpleAnnoFeedback")
+        col.prop(obj, "parent")
         dyn = obj.dynamic_properties
         dyn.draw(col)
 
@@ -1424,7 +1425,9 @@ class AnnoObject(ABC):
             config_type = cls.__name__
         file_name = Path(get_text(node, "FileName", "")).stem
         name = get_text(node, "Name", file_name)
-        return config_type + "_" + name
+        if not name.startswith(config_type + "_"):
+            name = config_type + "_" + name
+        return name
     
     
     @classmethod
