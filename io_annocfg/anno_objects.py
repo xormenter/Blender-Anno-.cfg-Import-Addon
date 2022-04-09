@@ -121,22 +121,34 @@ class Transform:
     def convert_to_blender_coords(self):
         if not self.anno_coords:
             return
-        self.location = (-self.location[0], -self.location[2], self.location[1])
-        self.rotation = (self.rotation[0], self.rotation[1], self.rotation[3], -self.rotation[2])
+        if IO_AnnocfgPreferences.mirror_models():
+            self.location = (-self.location[0], -self.location[2], self.location[1])
+            self.rotation = (self.rotation[0], self.rotation[1], self.rotation[3], -self.rotation[2])
+        else:     
+            self.location = (self.location[0], -self.location[2], self.location[1])
+            self.rotation = (self.rotation[0], self.rotation[1], self.rotation[3], self.rotation[2])
         self.rotation_euler = (self.rotation_euler[0], self.rotation_euler[2], self.rotation_euler[1])
         self.scale = (self.scale[0], self.scale[2], self.scale[1])
+        
         self.anno_coords = False
 
     def convert_to_anno_coords(self):
         if self.anno_coords:
             return
-        self.location = (-self.location[0], self.location[2], -self.location[1])
-        self.rotation = (self.rotation[0], self.rotation[1], -self.rotation[3], self.rotation[2])
+        if IO_AnnocfgPreferences.mirror_models():
+            self.location = (-self.location[0], self.location[2], -self.location[1])
+            self.rotation = (self.rotation[0], self.rotation[1], -self.rotation[3], self.rotation[2])
+        else:     
+            self.location = (self.location[0], -self.location[2], self.location[1])
+            self.rotation = (self.rotation[0], self.rotation[1], self.rotation[3], self.rotation[2])
         self.rotation_euler = (self.rotation_euler[0], self.rotation_euler[2], self.rotation_euler[1])
         self.scale = (self.scale[0], self.scale[2], self.scale[1])
+        
         self.anno_coords
     
     def mirror_mesh(self, object):
+        if not IO_AnnocfgPreferences.mirror_models():
+            return
         if not object.data or not hasattr(object.data, "vertices"):
             return
         for v in object.data.vertices:
@@ -1224,7 +1236,9 @@ def convert_to_glb_if_required(data_path: Union[str, Path]):
         convert_to_glb(fullpath)
 
 def import_model_to_scene(data_path: Union[str, Path, None]) -> BlenderObject:
+    print(data_path)
     if not data_path:
+        print("invalid data path")
         return add_empty_to_scene()
     fullpath = data_path_to_absolute_path(data_path)
     convert_to_glb_if_required(fullpath)
@@ -1235,8 +1249,12 @@ def import_model_to_scene(data_path: Union[str, Path, None]) -> BlenderObject:
     if not fullpath.exists():
         #self.report({'INFO'}, f"Missing file: Cannot find glb model {data_path}.")
         return None
+    # bpy.context.view_layer.objects.active = None
+    # for obj in bpy.data.objects:
+    #     obj.select_set(False)
     ret = bpy.ops.import_scene.gltf(filepath=str(fullpath))
     obj = bpy.context.active_object
+    print(obj.name, obj.type)
     return obj
 
 def add_empty_to_scene(empty_type: str = "SINGLE_ARROW") -> BlenderObject:
@@ -1313,9 +1331,8 @@ class AnnoObject(ABC):
         
     @classmethod
     def xml_to_blender(cls: Type[T], node: ET.Element, parent_object = None) -> BlenderObject:
-        obj = cls().add_blender_object_to_scene(node)
+        obj = cls.add_blender_object_to_scene(node)
         set_anno_object_class(obj, cls)
-        
         obj.name = cls.blender_name_from_node(node)
         if cls.has_name:
             get_text_and_delete(node, "Name")
@@ -1432,18 +1449,48 @@ class AnnoObject(ABC):
             materials (List[Material]): The materials.
         """
         
-        if not obj.data or not obj.data.materials:
+        if not obj.data:
+            #or not obj.data.materials:
             return
+        if len(materials) > 1 and all([bool(re.match( "Material_[0-9]+.*",m.name)) for m in obj.data.materials]):
+            sorted_materials = sorted([mat.name for i, mat in enumerate(obj.data.materials)])
+            if sorted_materials != [mat.name for mat in obj.data.materials]:
+                
+                print("Imported .glb with unordered but enumerated materials. Sorting the slots.")
+                print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+                print(sorted_materials)
+                for sorted_index, mat_name in enumerate(sorted_materials):
+                    index = 0
+                    for i, mat in enumerate(obj.data.materials):
+                        index = i
+                        if mat.name == mat_name:
+                            break
+                    bpy.context.object.active_material_index = index
+                    for _ in range(len(obj.data.materials)):
+                        bpy.ops.object.material_slot_move(direction='DOWN')
+
+        missing_slots = len(materials) - len(obj.data.materials)
+        if missing_slots > 0:
+            for i in range(missing_slots):
+                obj.data.materials.append(bpy.data.materials.new(name="NewSlotMaterial"))
         for i, material in enumerate(materials):
             if not material:
                 continue
-            if i < len(obj.data.materials):
-                old_material = obj.data.materials[i]
-                obj.data.materials[i] = material.as_blender_material()
-                old_material.user_clear()
-                bpy.data.materials.remove(old_material)
-            else:
-                obj.data.materials.append(material.as_blender_material())
+            slot = i
+            old_material = obj.data.materials[slot]
+            obj.data.materials[slot] = material.as_blender_material()
+            old_material.user_clear()
+            bpy.data.materials.remove(old_material)
+        # for i, material in enumerate(materials):
+        #     if not material:
+        #         continue
+        #     if i < len(obj.data.materials):
+        #         old_material = obj.data.materials[i]
+        #         obj.data.materials[i] = material.as_blender_material()
+        #         old_material.user_clear()
+        #         bpy.data.materials.remove(old_material)
+        #     else:
+        #         obj.data.materials.append(material.as_blender_material())
         
 
 
@@ -1552,6 +1599,13 @@ class SubFile(AnnoObject):
 class Decal(AnnoObject):
     has_transform = True
     transform_paths = {
+        "location.x":"Transformer/Config[ConfigType = 'ORIENTATION_TRANSFORM']/Position.x",
+        "location.y":"Transformer/Config[ConfigType = 'ORIENTATION_TRANSFORM']/Position.y",
+        "location.z":"Transformer/Config[ConfigType = 'ORIENTATION_TRANSFORM']/Position.z",
+        "rotation.x":"Transformer/Config[ConfigType = 'ORIENTATION_TRANSFORM']/Rotation.x",
+        "rotation.y":"Transformer/Config[ConfigType = 'ORIENTATION_TRANSFORM']/Rotation.y",
+        "rotation.z":"Transformer/Config[ConfigType = 'ORIENTATION_TRANSFORM']/Rotation.z",
+        "rotation.w":"Transformer/Config[ConfigType = 'ORIENTATION_TRANSFORM']/Rotation.w",
         "scale.x":"Extents.x",
         "scale.y":"Extents.y",
         "scale.z":"Extents.z",
