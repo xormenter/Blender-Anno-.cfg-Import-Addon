@@ -19,8 +19,8 @@
 bl_info = {
     "name": "Annocfg ImportExport",
     "author": "xormenter",
-    "version": (2, 3, 0),
-    "blender": (2, 93, 0),
+    "version": (2, 5, 0),
+    "blender": (3, 1, 0),
     "location": "File > Import > Anno (.cfg)",
     "description": "Allows importing and exporting configuration files for Anno 1800 3d models.",
     "doc_url": "https://github.com/xormenter/Blender-Anno-.cfg-Import-Addon",
