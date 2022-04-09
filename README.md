@@ -5,7 +5,10 @@ When used with the rdm4 converter and texconv, it will automatically convert .rd
 This means that if you have all those tools, you don't have to convert anything manually and can edit everything directly in Blender.
 
 # Requirements
-Blender **v.2.93** (Both lower and higher versions of blender cause issues!)
+- Blender **3** https://www.blender.org/
+
+**If not using v.3.2+, you'll need to update the gltf importer addon manually!** (A required fix for a bug will only come with the blender 3.2 installer.) For this, download the repository from https://github.com/KhronosGroup/glTF-Blender-IO and overwrite the `io_scene_gltf_2`addon folder in your blender installation. 
+
 To use the automatic conversion, you need:
 - rdm4 converter https://github.com/lukts30/rdm4
 - texconv.exe https://github.com/microsoft/DirectXTex
@@ -18,7 +21,9 @@ And of course the .rda explorer to unpack the game files: https://github.com/lys
 3. If you haven't done so already, **unpack the .rda files** (at least the data/graphics part of it) into a single folder. It should look something like this: `C:\whatever\somewhere\rda\data\graphics\...`.  
 4. In the addon preferences, set the **rda path** to the folder that **contains** your `data` folder with the unpacked rda files. In this example, that would be `C:\whatever\somewhere\rda`
 5. Specify the paths to the `texconv.exe`, `rdm4-bin.exe`, `AnnoFCConverter.exe` executables.
-You are now ready to go!
+
+You are now ready to go! Optional: Set up the prop asset library (See below)
+
 
 # Usage
 ## Importing 
@@ -68,4 +73,15 @@ To use it:
 ![Blender 08_01_2022 23_31_12](https://user-images.githubusercontent.com/94999291/148662128-756104d4-bf6d-4ce1-8b38-347f6136be44.png)
 
 7. Finally, when exporting the MAIN_FILE object, select the FeedbackType SimpleAnnnoFeedbackEncoding. It will write a .xml file, convert it to .cf7 and convert that to .fc. 
+
+
+# Asset Library
+## Setup 
+To set up  the prop asset library, create a fresh .blend file. Click the `File->Import Anno Prop Asset` button. The addon will now load *all* prop assets located somewhere in your .rda folder into this file. This will take a long time (go for a walk, watch a movie, sleep). After that save this .blend file in a user-library directory. The default one is `C:\Users\<USERNAME>\Documents\Blender\Assets` (but you can add more in the blender preferences). Now every prop is marked as an asset and tagged with more or less useful tags. If you want, you can further categorize the props (I suggest to at least put everything into a "Props" category). Close this file.
+
+You might also want to have other objects in your asset browser. Unfortunately, the asset browser can only handle single objects, no hierarchies (at least for now). Therefore, only Models, Props, Lights, Particles, etc. but not Files are valid objects. 
+If you want f.e. to use all the models you made somewhere in all your project files, just save all your .blend files in the same user-library directory and mark the models you want as assets. I'd suggest to add a duplicate of them that has no parent object as asset (to avoid confusion). So you can just extract all kinds of nice parts from the vanilla models, save them in your asset library and then use them whereever you want. 
+
+## Usage
+Now you can use this library in other .blend files. For this, open the asset browser and select the user library you used. Drag and drop the assets into your scene. **Important: You'll need to set the parent (propcontainer) for each prop you add, otherwise your props won't know where they belong and won't be exported!** 
 
