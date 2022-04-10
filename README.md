@@ -83,7 +83,7 @@ You might also want to have other objects in your asset browser. Unfortunately, 
 If you want f.e. to use all the models you made somewhere in all your project files, just save all your .blend files in the same user-library directory and mark the models you want as assets. I'd suggest to add a duplicate of them that has no parent object as asset (to avoid confusion). So you can just extract all kinds of nice parts from the vanilla models, save them in your asset library and then use them whereever you want. 
 
 ## Usage
-Now you can use this library in other .blend files. For this, open the asset browser and select the user library you used. Drag and drop the assets into your scene. **Important: You'll need to set the parent (propcontainer) for each prop you add, otherwise your props won't know where they belong and won't be exported!** 
+Now you can use this library in other .blend files. For this, open the asset browser and select the user library you used. Drag and drop the assets into your scene. **Important: You'll need to set the parent (propcontainer) for each prop you add, otherwise your props won't know where they belong and won't be exported!** If you add a lot of props, you might find it more convenient to first place all of them where you want, then hide the main object and all children (shift click on visibility), select all newly added props, and parent all of them to the propcontainer at the same time.
 
 # Troubleshooting
 The anno files are complicated and things can go wrong, here's how to figure out what's wrong.
