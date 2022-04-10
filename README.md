@@ -85,3 +85,15 @@ If you want f.e. to use all the models you made somewhere in all your project fi
 ## Usage
 Now you can use this library in other .blend files. For this, open the asset browser and select the user library you used. Drag and drop the assets into your scene. **Important: You'll need to set the parent (propcontainer) for each prop you add, otherwise your props won't know where they belong and won't be exported!** 
 
+# Troubleshooting
+The anno files are complicated and things can go wrong, here's how to figure out what's wrong.
+
+When the imported file does not look like you expected, have a look at the console `Window->Toggle System Console` and scroll through. If the tool wasn't able to locate textures or models or if the conversion from rdm to glb using rdm4 failed, you'll see these things here.
+
+If you get an parsing error that means that something is wrong with one of the imported .cfg/.cf7/.ifo files and this caused the xml parser to fail. 
+
+If you are unsure if the export worked properly, try importing your exported file. If it doesn't look identical, something went wrong. Make sure that the object parent hierarchy is valid, if some objects do not show up in your imported file.
+
+For materials, its important to not have any standard blender materials on your models, otherwise the export will fail. You'll need to use an imported material - only those have the specific custom properties and correctly named shader nodes. Speaking of shader nodes, please note that Cloth materials and Model materials are incompatible.
+
+There are quite a few weird reason for your model or parts of it becoming invisible in game. Most likely, it's related to something being wrong with the materials. Make sure that your material has the correct vertex format (same as your model rdm file)! Some models (those with animations) have a different vertex format than others. Animated models in general are quite tricky and not really supported by this tool - you'll have manually edit the files.
