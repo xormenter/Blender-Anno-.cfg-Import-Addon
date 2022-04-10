@@ -139,7 +139,7 @@ class Transform:
             self.location = (-self.location[0], self.location[2], -self.location[1])
             self.rotation = (self.rotation[0], self.rotation[1], -self.rotation[3], self.rotation[2])
         else:     
-            self.location = (self.location[0], -self.location[2], self.location[1])
+            self.location = (self.location[0], self.location[2], -self.location[1])
             self.rotation = (self.rotation[0], self.rotation[1], self.rotation[3], self.rotation[2])
         self.rotation_euler = (self.rotation_euler[0], self.rotation_euler[2], self.rotation_euler[1])
         self.scale = (self.scale[0], self.scale[2], self.scale[1])
@@ -1876,7 +1876,9 @@ class IfoPlane(AnnoObject):
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         vertices = []
         for pos_node in list(node.findall("Position")):
-            x = - parse_float_node(pos_node, "xf")
+            x = parse_float_node(pos_node, "xf")
+            if IO_AnnocfgPreferences.mirror_models():
+                x *= -1
             y = - parse_float_node(pos_node, "zf")
             vertices.append((x,y, 0.0))
             node.remove(pos_node)
@@ -1889,10 +1891,12 @@ class IfoPlane(AnnoObject):
         node = super().blender_to_xml(obj, parent_node, child_map)
         for vert in obj.data.vertices:
             x = vert.co.x
-            y = vert.co.y
+            if IO_AnnocfgPreferences.mirror_models():
+                x *= -1
+            y = -vert.co.y
             position_node = ET.SubElement(node, "Position")
-            ET.SubElement(position_node, "xf").text = format_float(-x)
-            ET.SubElement(position_node, "zf").text = format_float(-y)
+            ET.SubElement(position_node, "xf").text = format_float(x)
+            ET.SubElement(position_node, "zf").text = format_float(y)
         return node
 
 class Sequence(AnnoObject):
