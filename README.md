@@ -74,7 +74,7 @@ To use it:
 
 7. Finally, when exporting the MAIN_FILE object, select the FeedbackType SimpleAnnnoFeedbackEncoding. It will write a .xml file, convert it to .cf7 and convert that to .fc. 
 
-# Which animation sequence fits?
+### Which animation sequence fits?
 Thankfully, Taludas went through the effort of recording all animations for all worker units. Have a look:
 - Old World Workers: https://www.youtube.com/watch?v=dhI8R6WP7-E
 - New World Workers: https://www.youtube.com/watch?v=7noO6grwhts
