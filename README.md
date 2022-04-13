@@ -95,6 +95,7 @@ It supports importing/exporting the gamedata.xml and rd3d.xml file of an island 
 - The `PropGrid` from rd3d.xml. These props do not have parents. You can move, duplicate or delete them. Also supports adding new props from the asset browser, just drag them in the scene (for them Flag=1 corresponds to AdaptTerrainHeight=True).
 - The `CoarseHeightmap` from the rd3d.xml. No export. Note that the scaling along the z-axis might not be 100% correct, as I'm not sure how to calculate it properly. But it looks fine, I think.
 - Objects inside `./GameSessionManager/AreaManagerData/None/Data/Content/AreaObjectManager/GameObject/objects`. 
+Tip: With `Shift+G`, you can select the parent of an object. You'll find it useful.
 
 To export, select either the ISLAND_FILE (for rd3d.xml) or the ISLAND_GAMEDATA_FILE (for gamedata.xml) and click export. 
 
