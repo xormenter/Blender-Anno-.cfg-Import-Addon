@@ -81,7 +81,7 @@ Thankfully, Taludas went through the effort of recording all animations for all 
 
 # Asset Library
 ## Setup 
-To set up  the prop asset library, create a fresh .blend file. Click the `File->Import Anno Prop Asset` button. The addon will now load *all* prop assets located somewhere in your .rda folder into this file. This will take a long time (go for a walk, watch a movie, sleep). After that save this .blend file in a user-library directory. The default one is `C:\Users\<USERNAME>\Documents\Blender\Assets` (but you can add more in the blender preferences). Now every prop is marked as an asset and tagged with more or less useful tags. If you want, you can further categorize the props (I suggest to at least put everything into a "Props" category). Close this file.
+To set up  the prop asset library, create a fresh .blend file. Click the `File->Import Anno Prop Asset` button. The addon will now load *all* prop assets located somewhere in the selected folder (which needs to be somewhere inside your rda folder). This will take a long time (go for a walk, watch a movie, sleep). After that save this .blend file in a user-library directory. The default one is `C:\Users\<USERNAME>\Documents\Blender\Assets` (but you can add more in the blender preferences). Now every prop is marked as an asset and tagged with more or less useful tags. If you want, you can further categorize the props (I suggest to at least put everything into a "Props" category). Close this file.
 
 You might also want to have other objects in your asset browser. Unfortunately, the asset browser can only handle single objects, no hierarchies (at least for now). Therefore, only Models, Props, Lights, Particles, etc. but not Files are valid objects. 
 If you want f.e. to use all the models you made somewhere in all your project files, just save all your .blend files in the same user-library directory and mark the models you want as assets. I'd suggest to add a duplicate of them that has no parent object as asset (to avoid confusion). So you can just extract all kinds of nice parts from the vanilla models, save them in your asset library and then use them whereever you want. 
@@ -97,7 +97,10 @@ It supports importing/exporting the gamedata.xml and rd3d.xml file of an island 
 - Objects inside `./GameSessionManager/AreaManagerData/None/Data/Content/AreaObjectManager/GameObject/objects`. 
 Tip: With `Shift+G`, you can select the parent of an object. You'll find it useful.
 
+For the gamedata.xml, you'll need to have the assets.xml extracted in your rda folder (because they use GUIDs there...). 
+And be warned, importing it can take some time (and blender will freeze during this). If you want to see progress updates, open the system console before importing.
 To export, select either the ISLAND_FILE (for rd3d.xml) or the ISLAND_GAMEDATA_FILE (for gamedata.xml) and click export. 
+
 
 # Troubleshooting
 The anno files are complicated and things can go wrong, here's how to figure out what's wrong.
