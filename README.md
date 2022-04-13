@@ -89,6 +89,15 @@ If you want f.e. to use all the models you made somewhere in all your project fi
 ## Usage
 Now you can use this library in other .blend files. For this, open the asset browser and select the user library you used. Drag and drop the assets into your scene. **Important: You'll need to set the parent (propcontainer) for each prop you add, otherwise your props won't know where they belong and won't be exported!** If you add a lot of props, you might find it more convenient to first place all of them where you want, then hide the main object and all children (shift click on visibility), select all newly added props, and parent all of them to the propcontainer at the same time.
 
+# Island Import/Export
+This is not a full island editor and requires in depth knowledge about how island files work. 
+It supports importing/exporting the gamedata.xml and rd3d.xml file of an island and represents parts of these files as 3d objects:
+- The `PropGrid` from rd3d.xml. These props do not have parents. You can move, duplicate or delete them. Also supports adding new props from the asset browser, just drag them in the scene (for them Flag=1 corresponds to AdaptTerrainHeight=True).
+- The `CoarseHeightmap` from the rd3d.xml. No export. Note that the scaling along the z-axis might not be 100% correct, as I'm not sure how to calculate it properly. But it looks fine, I think.
+- Objects inside `./GameSessionManager/AreaManagerData/None/Data/Content/AreaObjectManager/GameObject/objects`. 
+
+To export, select either the ISLAND_FILE (for rd3d.xml) or the ISLAND_GAMEDATA_FILE (for gamedata.xml) and click export. 
+
 # Troubleshooting
 The anno files are complicated and things can go wrong, here's how to figure out what's wrong.
 
