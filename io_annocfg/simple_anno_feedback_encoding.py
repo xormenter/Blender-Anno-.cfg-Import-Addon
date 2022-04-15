@@ -134,7 +134,7 @@ class FeedbackConfig():
         self.export_properties(feedback_config_node)
         self.export_guid_variations(feedback_config_node)
         fl_node = etree.SubElement(feedback_config_node, "FeedbackLoops") #no idea what this is...
-        etree.SubElement(fl_node, "k").text = feedback_loop_mode
+        etree.SubElement(fl_node, "k").text = str(feedback_loop_mode)
         etree.SubElement(fl_node, "v").text = "0"
         sequence_definitions_node = etree.SubElement(feedback_config_node, "SequenceDefinitions")
         sequence_definition_node = etree.SubElement(sequence_definitions_node, "i")
