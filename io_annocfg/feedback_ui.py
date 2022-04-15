@@ -137,6 +137,16 @@ class FeedbackSequenceListItem(PropertyGroup):
            default=1000,
            min = 0,
     )
+    
+    def copy_from(self, other):
+        self.animation_type = other.animation_type
+        self.sequence = other.sequence
+        self.target_empty = other.target_empty
+        self.speed_factor_f = other.speed_factor_f
+        self.min_play_count = other.min_play_count
+        self.max_play_count = other.max_play_count
+        self.min_play_time = other.min_play_time
+        self.max_play_time = other.max_play_time
 
 class FEEDBACK_GUID_UL_List(UIList):
     """Demo UIList."""
@@ -170,7 +180,7 @@ class FEEDBACK_SEQUENCE_UL_List(UIList):
             
             split = layout.split(factor=0.05)
             row1 = split.row()
-            row2 = split.box().grid_flow(row_major=True, columns=1, even_columns=True, even_rows=False, align=False)
+            row2 = split.box().grid_flow(row_major=True, columns=7, even_columns=False, even_rows=False, align=False)
             
             row1.label(text = str(index))
             
@@ -183,7 +193,7 @@ class FEEDBACK_SEQUENCE_UL_List(UIList):
             if item.animation_type == "Walk":
                 row2.prop(item, "target_empty")
                 if item.target_empty is not None:
-                    row2.label(text = "TargetDummy.Name: " + item.target_empty.dynamic_properties.get_string("Name"))
+                    row2.label(text = "(" + item.target_empty.dynamic_properties.get_string("Name")+ ")")
                 row2.prop(item, "speed_factor_f")
             elif item.animation_type == "IdleAnimation":
                 row2.prop(item, "min_play_count")
@@ -205,6 +215,9 @@ class FEEDBACK_GUID_LIST_OT_NewItem(Operator):
     def execute(self, context):
         context.active_object.feedback_guid_list.add()
         return{'FINISHED'}
+
+
+
 
 class FEEDBACK_GUID_LIST_OT_DeleteITem(Operator):
     """Delete the selected item from the list."""
@@ -256,6 +269,21 @@ class LIST_OT_NewItem(Operator):
 
         return{'FINISHED'}
 
+
+class LIST_OT_DuplicateItem(Operator):
+    """Add a new item to end of the list (duplicate of selected one)."""
+
+    bl_idname = "feedback_sequence_list.duplicate_item"
+    bl_label = "Duplicate selected item"
+
+    def execute(self, context):
+        feedback_sequence_list = context.active_object.feedback_sequence_list
+        index = context.active_object.feedback_sequence_list_index
+        
+        feedback_sequence_list.add()
+        
+        feedback_sequence_list[len(feedback_sequence_list)-1].copy_from(feedback_sequence_list[index])
+        return{'FINISHED'}
 
 class LIST_OT_DeleteItem(Operator):
     """Delete the selected item from the list."""
@@ -355,9 +383,8 @@ class PT_FeedbackConfig(Panel):
         col.template_list("FEEDBACK_GUID_UL_List", "feedback_guid_list", active_object,
                           "feedback_guid_list", active_object, "feedback_guid_list_index", rows = 1)
         row = col.row()
-        row.operator('feedback_guid_list.new_item', text='NEW')
-        row.operator('feedback_guid_list.delete_item', text='REMOVE')
-            
+        row.operator('feedback_guid_list.new_item', text='New')
+        row.operator('feedback_guid_list.delete_item', text='Remove')
         
         feedback_sequence_box = layout.box()
         
@@ -367,8 +394,9 @@ class PT_FeedbackConfig(Panel):
                           "feedback_sequence_list", active_object, "feedback_sequence_list_index")
 
         row = feedback_sequence_box.row()
-        row.operator('feedback_sequence_list.new_item', text='NEW')
-        row.operator('feedback_sequence_list.delete_item', text='REMOVE')
+        row.operator('feedback_sequence_list.new_item', text='New')
+        row.operator('feedback_sequence_list.delete_item', text='Remove')
+        row.operator('feedback_sequence_list.duplicate_item', text='Copy')
         row.operator('feedback_sequence_list.move_item', text='UP').direction = 'UP'
         row.operator('feedback_sequence_list.move_item', text='DOWN').direction = 'DOWN'
 
@@ -385,6 +413,7 @@ classes = [
     LIST_OT_DeleteItem,
     LIST_OT_MoveItem,
     PT_FeedbackConfig,
+    LIST_OT_DuplicateItem,
 ]
 def register():
     for cls in classes:
