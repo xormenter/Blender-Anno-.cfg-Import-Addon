@@ -325,7 +325,7 @@ def get_converter_for(tag, value_string):
         return converter_by_tag[tag]
     if value_string.startswith("_COLOR["):
         return ColorConverter
-    if value_string.isnumeric():
+    if value_string.isnumeric() or value_string.lstrip("-").isnumeric():
         return IntConverter
     if is_type(float, value_string):
         return FloatConverter
