@@ -3,7 +3,7 @@ import bpy
 
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
-from bpy.props import StringProperty, BoolProperty, EnumProperty
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty
 from bpy.types import Operator, AddonPreferences
 from bpy.types import Object as BlenderObject
 import xml.etree.ElementTree as ET
@@ -62,7 +62,18 @@ class ExportAnnoCfg(Operator, ExportHelper):
         description="Auto convert the SimpleAnnoFeedbackEncoding to .cf7 and .fc after exporting it. Only relevant when using FeedbackType SimpleAnnoFeedbackEncoding.",
         default=True,
     )
-    
+    delete_material_lod_info: BoolProperty( #type: ignore
+        name="Delete MaterialLODInfos nodes",
+        description="Deletes all MaterialLODInfos nodes. These can cause issues when you add material slots or join meshes with different materials. Turn off when you haven't done such modifications.",
+        default=True,
+    )
+    feedback_loop_mode:  IntProperty( #type: ignore
+        name="FeedbackLoop Mode",
+        description="Only works with s.a.f.e. If 1, feedback is visible when active. If 0, feedback is visible when not active. Use 1 for production buildings and 0 for public buildings.",
+        default=1,
+        min = 0, 
+        max = 1,
+    )
     
     @classmethod
     def poll(cls, context):
@@ -114,12 +125,24 @@ class ExportAnnoCfg(Operator, ExportHelper):
                 return child_obj
         return None
     
+    def visit_and_delete_material_lod(self, node):
+        if node.find("MaterialLODInfos"):
+            node.remove(node.find("MaterialLODInfos"))
+        for child in list(node):
+            self.visit_and_delete_material_lod(child)
+    
     def export_cfg_file(self):
         print("EXPORT MAIN OBJ", self.main_obj.name)
         self.root = MainFile.blender_to_xml(self.main_obj, None, self.children_by_object)
+        
+                
+        if self.delete_material_lod_info:
+            self.visit_and_delete_material_lod(self.root)
+        
         tree = ET.ElementTree(self.root)
         ET.indent(tree, space="\t", level=0)
         tree.write(self.filepath)
+        
         self.report({'INFO'}, 'cfg export completed')
 
     def get_text(self, node, query, default = ""):
@@ -157,7 +180,7 @@ class ExportAnnoCfg(Operator, ExportHelper):
         tree.write(safe_filepath)
         if self.convert_safe_to_fc:
             safe = SimpleAnnoFeedbackEncoding(root)
-            safe.write_as_cf7(safe_filepath.with_suffix(".cf7"))
+            safe.write_as_cf7(safe_filepath.with_suffix(".cf7"), self.feedback_loop_mode)
             if IO_AnnocfgPreferences.get_path_to_fc_converter().exists():
                 subprocess.call(f"\"{IO_AnnocfgPreferences.get_path_to_fc_converter()}\" -w \"{safe_filepath.with_suffix('.cf7')}\" -y -o \"{safe_filepath.with_suffix('.fc')}\"")
 
@@ -538,6 +561,7 @@ class ExportAnnoModelOperator(Operator, ExportHelper):
         try:
             data_path = to_data_path(self.path)
             self.obj.dynamic_properties.set("FileName", data_path.as_posix(), replace = True)
+            
         except ValueError:
             self.report({'INFO'}, f'Warning, export not relative to rda folder, could not adapt FileName')
             pass
