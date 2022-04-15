@@ -128,13 +128,13 @@ class FeedbackConfig():
                 etree.SubElement(element, "TurnToDummyID").text = self.feedback_encoding.dummy_id_by_name.get(get_required_text(sequence_element_node, "TurnToDummy"), "0")
             self.sequence_elements.append(element)
 
-    def export_to_cf7(self, feedback_config_node):
+    def export_to_cf7(self, feedback_config_node, feedback_loop_mode):
         etree.SubElement(feedback_config_node, "hasValue").text = "1"
         etree.SubElement(feedback_config_node, "MainObject").text = "0"
         self.export_properties(feedback_config_node)
         self.export_guid_variations(feedback_config_node)
         fl_node = etree.SubElement(feedback_config_node, "FeedbackLoops") #no idea what this is...
-        etree.SubElement(fl_node, "k").text = "1"
+        etree.SubElement(fl_node, "k").text = feedback_loop_mode
         etree.SubElement(fl_node, "v").text = "0"
         sequence_definitions_node = etree.SubElement(feedback_config_node, "SequenceDefinitions")
         sequence_definition_node = etree.SubElement(sequence_definitions_node, "i")
@@ -253,7 +253,7 @@ class SimpleAnnoFeedbackEncoding():
         for feedback_config_node in self.root.find("FeedbackConfigs").findall("FeedbackConfig"):
             self.feedback_configs.append(FeedbackConfig(feedback_config_node, self))
 
-    def as_cf7(self):
+    def as_cf7(self, feedback_loop_mode = 1):
         cf7root = etree.Element("cf7_imaginary_root")
         dummy_root = etree.SubElement(cf7root, "DummyRoot")
         self.export_dummies(dummy_root)
@@ -264,13 +264,13 @@ class SimpleAnnoFeedbackEncoding():
         feedback_configs_node = etree.SubElement(feedback_definition_node, "FeedbackConfigs")
         for feedback_config in self.feedback_configs:
             feedback_config_node = etree.SubElement(feedback_configs_node, "i")
-            feedback_config.export_to_cf7(feedback_config_node)
+            feedback_config.export_to_cf7(feedback_config_node, feedback_loop_mode)
         etree.SubElement(feedback_definition_node, "ValidSequenceIDs").text = "CDATA[8 0 1]"
 
         return cf7root
     
-    def write_as_cf7(self, filename):
-        cf7root = self.as_cf7()
+    def write_as_cf7(self, filename, feedback_loop_mode = 1):
+        cf7root = self.as_cf7(feedback_loop_mode)
         etree.indent(cf7root, space=" ")
         cf7tree_string = etree.tostring(cf7root, encoding='unicode', method='xml')
 
