@@ -13,6 +13,7 @@ To use the automatic conversion, you need:
 - rdm4 converter https://github.com/lukts30/rdm4
 - texconv.exe https://github.com/microsoft/DirectXTex
 - .fc Converter (AnnoFCConverter.exe) (please use this one, as it doesn't have a problem with newlines at the end: https://github.com/jakobharder/AnnoFCConverter)
+- The blender addon "A.N.T. Landscape". It is shipped with blender, but needs to be enabled in the addon preferences.
 And of course the .rda explorer to unpack the game files: https://github.com/lysannschlegel/RDAExplorer
 
 # Installation
@@ -90,10 +91,11 @@ If you want f.e. to use all the models you made somewhere in all your project fi
 Now you can use this library in other .blend files. For this, open the asset browser and select the user library you used. Drag and drop the assets into your scene. **Important: You'll need to set the parent (propcontainer) for each prop you add, otherwise your props won't know where they belong and won't be exported!** If you add a lot of props, you might find it more convenient to first place all of them where you want, then hide the main object and all children (shift click on visibility), select all newly added props, and parent all of them to the propcontainer at the same time.
 
 # Island Import/Export
+*Enable the ANT landscape addon for this functionality.*
 This is not a full island editor and requires in depth knowledge about how island files work. 
 It supports importing/exporting the gamedata.xml and rd3d.xml file of an island and represents parts of these files as 3d objects:
 - The `PropGrid` from rd3d.xml. These props do not have parents. You can move, duplicate or delete them. Also supports adding new props from the asset browser, just drag them in the scene (for them Flag=1 corresponds to AdaptTerrainHeight=True).
-- The `CoarseHeightmap` from the rd3d.xml. No export. Note that the scaling along the z-axis might not be 100% correct, as I'm not sure how to calculate it properly. But it looks fine, I think.
+- The `CoarseHeightmap` from the rd3d.xml. No export. Note that the scaling along the z-axis might not be 100% correct, as I'm not sure how to calculate it properly. But it looks fine, I think. 
 - Objects inside `./GameSessionManager/AreaManagerData/None/Data/Content/AreaObjectManager/GameObject/objects`. 
 Tip: With `Shift+G`, you can select the parent of an object. You'll find it useful.
 
