@@ -2121,7 +2121,7 @@ class FeedbackConfig(AnnoObject):
         if prop in ["TargetDummy", "DefaultStateDummy", "target_empty"]:
             name = "Dummy_" + annovalue
             return bpy.data.objects.get(name, None)
-        if prop in ["MultiplyActorByDummyCount"]:
+        if prop in ["MultiplyActorByDummyCount", "StartDummyGroup"]:
             name = "DummyGroup_" + annovalue
             return bpy.data.objects.get(name, None)
         return string_to_fitting_type(annovalue)
@@ -2653,7 +2653,7 @@ class IslandGamedataFile:
                 GameObject.xml_to_blender(obj_node, assetsXML)
                 
     @classmethod
-    def blender_to_xml(cls, obj, randomize_ids = True):
+    def blender_to_xml(cls, obj, randomize_ids = False):
         """Only exports the prop grid. Not the heighmap or the prop FileNames."""
         base_node = ET.fromstring(obj["islandgamedataxml"])
         
