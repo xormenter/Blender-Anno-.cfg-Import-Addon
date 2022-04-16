@@ -2340,6 +2340,8 @@ class PropGridInstance:
         
         if node.find("AdaptTerrainHeight") is not None:
             node.find("AdaptTerrainHeight").text = str(int(bool(node.find("AdaptTerrainHeight").text)))
+        else:
+            ET.SubElement(node, "AdaptTerrainHeight").text = "0"
         transform = Transform(location, rotation, scale, anno_coords = True)
         transform.apply_to(obj)
 
@@ -2353,8 +2355,6 @@ class PropGridInstance:
         
         ET.SubElement(node, "FileName").text = get_text(base_node, "FileName")
         ET.SubElement(node, "Color").text = get_text(base_node, "Color", "1 1 1 1")
-        if base_node.find("Color") is not None:
-            ET.SubElement(node, "Color").text = base_node.find("Color").text
         if base_node.find("AdaptTerrainHeight") is not None:
             adapt = bool(int(get_text(base_node, "AdaptTerrainHeight")))
             ET.SubElement(node, "AdaptTerrainHeight").text = str(adapt)
