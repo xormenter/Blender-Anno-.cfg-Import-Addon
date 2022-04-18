@@ -2315,6 +2315,9 @@ class PropGridInstance:
         bpy.context.scene.collection.objects.link(copy)
         return copy
     @classmethod
+    def str_to_bool(cls, b):
+        return b in ["True", "true", "TRUE"]
+    @classmethod
     def xml_to_blender(cls, node: ET.Element, prop_objects = [], parent_obj = None) -> BlenderObject:
         """
         <None>
@@ -2339,7 +2342,7 @@ class PropGridInstance:
         scale    = [float(s) for s in get_text_and_delete(node, "Scale", "1,0 1,0 1,0").replace(",", ".").split(" ")]
         
         if node.find("AdaptTerrainHeight") is not None:
-            node.find("AdaptTerrainHeight").text = str(int(bool(node.find("AdaptTerrainHeight").text)))
+            node.find("AdaptTerrainHeight").text = str(int(cls.str_to_bool(node.find("AdaptTerrainHeight").text)))
         else:
             ET.SubElement(node, "AdaptTerrainHeight").text = "0"
         transform = Transform(location, rotation, scale, anno_coords = True)
