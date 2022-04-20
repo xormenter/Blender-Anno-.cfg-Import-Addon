@@ -49,6 +49,7 @@ class FeedbackConfigItem(PropertyGroup):
            default=0.5, min = 0.0
     )
     DefaultStateDummy: PointerProperty(name = "DefaultStateDummy", description = "Select a Dummy object", type = bpy.types.Object)
+    StartDummyGroup: PointerProperty(name = "StartDummyGroup", description = "Select a Dummy object, used with multiply actor count to create a group of units that have the same animation at different locations. REQUIRES properly named dummies inside the dummy group. For a dummy group named 'group', name them 'group_0', 'group_1', and so on.", type = bpy.types.Object)
 
 def guid_enum_callback(guid_list_item, context):
     guid_type = guid_list_item.guid_type
@@ -374,7 +375,7 @@ class PT_FeedbackConfig(Panel):
         col = row.box().column()
         for key in FeedbackConfigItem.__annotations__.keys():
             col.prop(context.active_object.feedback_config_item, key)
-            if key in ["DefaultStateDummy", "MultiplyActorByDummyCount"]:
+            if key in ["DefaultStateDummy", "MultiplyActorByDummyCount", "StartDummyGroup"]:
                 obj = getattr(context.active_object.feedback_config_item, key, None)
                 if obj is not None:
                     col.label(text = key+".Name: " + obj.dynamic_properties.get_string("Name"))
