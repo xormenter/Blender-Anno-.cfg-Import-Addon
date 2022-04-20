@@ -4,6 +4,7 @@ import bpy
 from bpy.types import Object as BlenderObject
 import xml.etree.ElementTree as ET
 import os
+import random
 import re
 import subprocess
 from pathlib import Path
@@ -16,7 +17,7 @@ import sys
 def str_to_class(classname):
     return getattr(sys.modules[__name__], classname)
 
-
+from math import radians
 from .prefs import IO_AnnocfgPreferences
 from .utils import data_path_to_absolute_path, to_data_path
 from .feedback_ui import FeedbackConfigItem, GUIDVariationListItem, FeedbackSequenceListItem
@@ -324,7 +325,7 @@ def get_converter_for(tag, value_string):
         return converter_by_tag[tag]
     if value_string.startswith("_COLOR["):
         return ColorConverter
-    if value_string.isnumeric():
+    if value_string.isnumeric() or value_string.lstrip("-").isnumeric():
         return IntConverter
     if is_type(float, value_string):
         return FloatConverter
@@ -1651,6 +1652,8 @@ class Prop(AnnoObject):
     
     prop_data_by_filename: Dict[str, Tuple[Optional[str], Optional[Material]]] = {} #avoids opening the same .prp file multiple times
     
+    prop_obj_blueprints = {} #used to copy mesh prop data 
+    
     @classmethod
     def get_prop_data(cls, prop_filename: str) -> Tuple[Optional[str], Optional[Material]]:
         """Caches results in prop_data_by_filename
@@ -1687,15 +1690,22 @@ class Prop(AnnoObject):
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         prop_filename = get_text(node, "FileName")
+        if prop_filename in cls.prop_obj_blueprints:
+            try: #If the reference prop has already been deleted, we cannot copy it.
+                prop_obj = cls.prop_obj_blueprints[prop_filename].copy() #Can fail.
+                bpy.context.scene.collection.objects.link(prop_obj)
+                return prop_obj
+            except:
+                pass
         model_filename, material = cls.get_prop_data(prop_filename)
         imported_obj = import_model_to_scene(model_filename)
         if imported_obj is None:
             return add_empty_to_scene()
-
-        
         #materials
         cls.apply_materials_to_object(imported_obj, [material])
+        cls.prop_obj_blueprints[prop_filename] = imported_obj
         return imported_obj
+        
 
 
  
@@ -2111,7 +2121,7 @@ class FeedbackConfig(AnnoObject):
         if prop in ["TargetDummy", "DefaultStateDummy", "target_empty"]:
             name = "Dummy_" + annovalue
             return bpy.data.objects.get(name, None)
-        if prop in ["MultiplyActorByDummyCount"]:
+        if prop in ["MultiplyActorByDummyCount", "StartDummyGroup"]:
             name = "DummyGroup_" + annovalue
             return bpy.data.objects.get(name, None)
         return string_to_fitting_type(annovalue)
@@ -2286,11 +2296,400 @@ class MainFile(AnnoObject):
         file_obj = add_empty_to_scene()  
         return file_obj
 
+class PropGridInstance:
+    @classmethod
+    def add_blender_object_to_scene(cls, node, prop_objects) -> BlenderObject:
+        index = int(get_text(node, "Index", "-1"))
+        if index == -1 or index >= len(prop_objects):
+            o = bpy.data.objects.new( "empty", None )
+
+            # due to the new mechanism of "collection"
+            bpy.context.scene.collection.objects.link( o )
+
+            # empty_draw was replaced by empty_display
+            o.empty_display_size = 1
+            o.empty_display_type = 'ARROWS'   
+            return o
+        prop_obj = prop_objects[index]
+        copy = prop_obj.copy()
+        bpy.context.scene.collection.objects.link(copy)
+        return copy
+    @classmethod
+    def str_to_bool(cls, b):
+        return b in ["True", "true", "TRUE"]
+    @classmethod
+    def xml_to_blender(cls, node: ET.Element, prop_objects = [], parent_obj = None) -> BlenderObject:
+        """
+        <None>
+            <Index>67</Index> #Use the prop at index 67 of FileNames
+            <Position>153,76723 0,1976307 31,871208</Position> #Coordinates x z y for blender?
+            <Rotation>0 -0,92359954 -0 0,3833587</Rotation>
+            <Scale>0,6290292 0,6290292 0,6290292</Scale>
+            <Color>1 1 1 1</Color> #Some data to store
+            <AdaptTerrainHeight>True</AdaptTerrainHeight>
+        </None>
+        """
+        obj = cls.add_blender_object_to_scene(node, prop_objects)
+        if parent_obj:
+            obj.parent = parent_obj
+        
+        set_anno_object_class(obj, cls)
+        
+        location = [float(s) for s in get_text_and_delete(node, "Position", "0,0 0,0 0,0").replace(",", ".").split(" ")]
+        rotation = [float(s) for s in get_text_and_delete(node, "Rotation", "1,0 0,0 0,0 0,0").replace(",", ".").split(" ")]
+        rotation = [rotation[3], rotation[0], rotation[1], rotation[2]] #xzyw -> wxzy
+        #rotation = [rotation[1], rotation[2], rotation[3], rotation[0]] #xzyw -> wxzy or something else
+        scale    = [float(s) for s in get_text_and_delete(node, "Scale", "1,0 1,0 1,0").replace(",", ".").split(" ")]
+        
+        if node.find("AdaptTerrainHeight") is not None:
+            node.find("AdaptTerrainHeight").text = str(int(cls.str_to_bool(node.find("AdaptTerrainHeight").text)))
+        else:
+            ET.SubElement(node, "AdaptTerrainHeight").text = "0"
+        transform = Transform(location, rotation, scale, anno_coords = True)
+        transform.apply_to(obj)
+
+        obj.dynamic_properties.from_node(node)
+        return obj
+    
+    @classmethod
+    def blender_to_xml(cls, obj):
+        base_node = obj.dynamic_properties.to_node(ET.Element("None"))
+        node = ET.Element("None")
+        
+        ET.SubElement(node, "FileName").text = get_text(base_node, "FileName")
+        ET.SubElement(node, "Color").text = get_text(base_node, "Color", "1 1 1 1")
+        if base_node.find("AdaptTerrainHeight") is not None:
+            adapt = bool(int(get_text(base_node, "AdaptTerrainHeight")))
+            ET.SubElement(node, "AdaptTerrainHeight").text = str(adapt)
+        else:
+            adapt = bool(int(get_text(base_node, "Flags")))
+            ET.SubElement(node, "AdaptTerrainHeight").text = str(adapt)
+        
+        transform = Transform(obj.location, obj.rotation_quaternion, obj.scale, anno_coords = False)
+        transform.convert_to_anno_coords()
+        location = [format_float(f) for f in transform.location]
+        rotation = [format_float(f) for f in[transform.rotation[1], transform.rotation[2], transform.rotation[3], transform.rotation[0]]] #wxzy ->xzyw
+        scale = [format_float(f) for f in transform.scale]
+        
+        ET.SubElement(node, "Position").text = ' '.join(location).replace(".", ",")
+        ET.SubElement(node, "Rotation").text = ' '.join(rotation).replace(".", ",")
+        ET.SubElement(node, "Scale").text = ' '.join(scale).replace(".", ",")
+
+        return node
+
+
+class IslandFile:
+    @classmethod
+    def add_blender_object_to_scene(cls, node) -> BlenderObject:
+        file_obj = add_empty_to_scene()  
+        return file_obj
+    @classmethod
+    def blender_to_xml(cls, obj):
+        """Only exports the prop grid. Not the heighmap or the prop FileNames."""
+        base_node = ET.fromstring(obj["islandxml"])
+        
+        prop_grid_node = base_node.find("PropGrid")
+        if prop_grid_node.find("Instances"): #delete existing
+            prop_grid_node.remove(prop_grid_node.find("Instances"))
+        instances_node = ET.SubElement(prop_grid_node, "Instances")
+        
+        index_by_filename = {}
+        index = 0
+        
+        for obj in bpy.data.objects:
+            if get_anno_object_class(obj) not in [PropGridInstance, Prop]:
+                continue
+            if obj.parent is not None: #when .cfgs are imported there will be props with parents, so don't use them.
+                continue
+            prop_node = PropGridInstance.blender_to_xml(obj)
+            file_name = get_text_and_delete(prop_node, "FileName")
+            if file_name not in index_by_filename:
+                index_by_filename[file_name] = index
+                index += 1
+            ET.SubElement(prop_node, "Index").text = str(index_by_filename[file_name])
+            instances_node.append(prop_node)
+            
+        if prop_grid_node.find("FileNames"): #delete existing
+            prop_grid_node.remove(prop_grid_node.find("FileNames"))
+        filenames_node = ET.SubElement(prop_grid_node, "FileNames")
+        
+        print(index_by_filename.items())
+        for filename, index in sorted(index_by_filename.items(), key = lambda kv: kv[1]):
+            ET.SubElement(filenames_node, "None").text = filename
+        
+        return base_node
+    
+    @classmethod
+    def xml_to_blender(cls, node: ET.Element) -> BlenderObject:
+        obj = cls.add_blender_object_to_scene(node)
+        obj["islandxml"] = ET.tostring(node)
+        obj.name = "ISLAND_FILE"
+        set_anno_object_class(obj, cls)
+        
+        terrain_node = node.find("Terrain")
+        if terrain_node is not None:
+            heightmap_node = terrain_node.find("CoarseHeightMap")
+            width = int(get_text(heightmap_node, "width"))
+            height = int(get_text(heightmap_node, "width"))
+            data = [int(s) for s in get_text(heightmap_node, "map").split(" ")]
+            print(f"Heightmap w={width} x h={height} => {len(data)}")
+            grid_width = float(get_text(terrain_node,"GridWidth", "8192"))
+            grid_height = float(get_text(terrain_node,"GridHeight", "8192"))
+            unit_scale = float(get_text(terrain_node,"UnitScale", "0,03125").replace(",", "."))
+            bpy.ops.mesh.landscape_add(subdivision_x=width, subdivision_y=height, mesh_size_x=grid_width*unit_scale, mesh_size_y=grid_width*unit_scale,
+                                       height=0, refresh=True)
+            terrain_obj = bpy.context.active_object
+            max_height = 30
+            min_height = float(get_text(terrain_node,"MinMeshLevel", "0"))
+            #0,03125
+            for i, vert in enumerate(terrain_obj.data.vertices):
+                vert.co.z = data[i] / 8192 * 32
+                vert.co.x *= -1
+            terrain_obj.location.x -= grid_width*unit_scale/2
+            terrain_obj.location.y -= grid_width*unit_scale/2
+            terrain_obj.rotation_euler[2] = radians(90.0)
+            
+        filenames_node = node.find("PropGrid/FileNames")
+        prop_objects = []
+        if filenames_node is not None:
+            for i, file_node in enumerate(list(filenames_node)):
+                data_path = file_node.text
+                prop_xml_node = ET.fromstring(f"""
+                            <Config>
+                                <ConfigType>PROP</ConfigType>
+                                <FileName>{data_path}</FileName>
+                                <Name>PROP_{i}_{Path(data_path).stem}</Name>
+                                <Flags>1</Flags>
+                            </Config>                  
+                        """)
+                prop_obj = Prop.xml_to_blender(prop_xml_node)
+                prop_objects.append(prop_obj)
+            
+        instances_node = node.find("PropGrid/Instances")
+        if instances_node is not None:
+            instance_nodes = list(instances_node)
+            print(len(instance_nodes), " Objects.")
+            for i, instance_node in enumerate(instance_nodes):
+                if i % int(len(instance_nodes)/100) == 0: 
+                    print(str(float(i) / len(instance_nodes) * 100.0) + "%")
+                PropGridInstance.xml_to_blender(instance_node, prop_objects)
+        else:
+            print("Island missing PropGrid")
+            print(node.find("PropGrid"))
+            
+        #delete the blueprint props
+        for prop_obj in prop_objects:
+            bpy.data.objects.remove(prop_obj, do_unlink=True)
+        return obj
+
+
+class AssetsXML():
+    def __init__(self):
+        self.path = Path(IO_AnnocfgPreferences.get_path_to_rda_folder(), Path("data/config/export/main/asset/assets.xml"))
+        if not self.path.exists():
+            raise Exception(f"Assets.xml required for this island file. Expected it at '{self.path}'")
+        
+        print("Loading assets.xml")
+        self.tree = ET.parse(self.path)
+        self.root = self.tree.getroot()
+        print("Assets.xml loaded.")
+        
+        self.cfg_cache = {}
+        
+    def get_asset(self, guid):
+        asset_node = self.root.find(f".//Asset/Values/Standard[GUID='{guid}']/../..")
+        return asset_node
+    
+    def get_variation_cfg_and_name(self, guid, index):
+        if (guid, index) in self.cfg_cache:
+            return self.cfg_cache[guid, index]
+        asset_node = self.get_asset(guid)
+        if asset_node is None:
+            print("Cannot find asset with guid {guid}")
+            self.cfg_cache[(guid, index)] = None, None
+            return None, None
+        if asset_node.find("Values/Object/Variations") is None:
+            return None, None
+        variations = list(asset_node.find("Values/Object/Variations"))
+        name = asset_node.find("Values/Standard/Name").text
+        if index >= len(variations):
+            print("Missing variation {index} for guid {guid} ({name})")
+            self.cfg_cache[(guid, index)] = None, None
+            return None, None
+        item = variations[index]
+        cfg_filename = item.find("Filename").text
+        
+        self.cfg_cache[(guid, index)] = (cfg_filename, name)
+        return (cfg_filename, name)
+
+
+class GameObject:
+    @classmethod
+    def add_blender_object_to_scene(cls, node) -> BlenderObject:
+        o = bpy.data.objects.new( "empty", None )
+        # due to the new mechanism of "collection"
+        bpy.context.scene.collection.objects.link( o )
+        # empty_draw was replaced by empty_display
+        o.empty_display_size = 1
+        o.empty_display_type = 'ARROWS'   
+        return o
+    
+    @classmethod
+    def xml_to_blender(cls, node: ET.Element, assetsXML, parent_obj = None) -> BlenderObject:
+        """
+        <None>
+            <guid>100689</guid>
+            <ID>-9221085318956974056</ID>
+            <Variation>6</Variation>
+            <Position>202,14145 0,7333633 121,70564</Position>
+            <Direction>1,3954557</Direction>
+            <ParticipantID>
+                <id>8</id>
+            </ParticipantID>
+            <QuestObject>
+                <QuestIDs />
+                <ObjectWasVisible>
+                <None>False</None>
+                <None>False</None>
+                </ObjectWasVisible>
+                <OverwriteVisualParticipant />
+            </QuestObject>
+            <Mesh>
+                <Flags>
+                <flags>1</flags>
+                </Flags>
+                <SequenceData>
+                <CurrentSequenceStartTime>100</CurrentSequenceStartTime>
+                </SequenceData>
+                <Orientation>0 -0,64247024 0 0,7662945</Orientation>
+                <Scale>1.5</Scale>
+            </Mesh>
+            <SoundEmitter />
+        </None>
+        """
+        obj = cls.add_blender_object_to_scene(node)
+        if parent_obj:
+            obj.parent = parent_obj
+        
+        set_anno_object_class(obj, cls)
+        
+        node.find("ID").text = "ID_"+node.find("ID").text
+        mesh_node = node.find("Mesh")
+    
+        location = [float(s) for s in get_text_and_delete(node, "Position", "0,0 0,0 0,0").replace(",", ".").split(" ")]
+        rotation = [1,0,0,0] 
+        scale    = [1,1,1]
+        if mesh_node is not None:
+            rotation = [float(s) for s in get_text_and_delete(mesh_node, "Orientation", "1,111 0,0 0,0 0,0").replace(",", ".").split(" ")]
+            rotation = [rotation[3], rotation[0], rotation[1], rotation[2]] #xzyw -> wxzy
+            scale = [float(s) for s in get_text_and_delete(mesh_node, "Scale", "1,0 1,0 1,0").replace(",", ".").split(" ")]
+            if len(scale) == 1:
+                scale = [scale[0], scale[0], scale[0]]
+        
+        transform = Transform(location, rotation, scale, anno_coords = True)
+        transform.apply_to(obj)
+
+        obj.dynamic_properties.from_node(node)
+        
+        
+        guid = get_text(node, "guid")
+        variation = int(get_text(node, "Variation", "0"))
+        file_name, asset_name = assetsXML.get_variation_cfg_and_name(guid, variation)
+        obj.name = "GameObject_" + str(asset_name)
+        if file_name is not None:
+            try:
+                subfile_node = ET.fromstring(f"""
+                    <Config>
+                        <FileName>{file_name}</FileName>
+                        <ConfigType>FILE</ConfigType>
+                        <Transformer>
+                            <Config>
+                            <ConfigType>ORIENTATION_TRANSFORM</ConfigType>
+                            <Conditions>0</Conditions>
+                            </Config>
+                        </Transformer>
+                    </Config>
+                """)
+                blender_obj = SubFile.xml_to_blender(subfile_node, obj)
+            except Exception as ex:
+                print(f"Error {guid} {variation} {file_name} {ex}")
+        return obj
+    
+    @classmethod
+    def blender_to_xml(cls, obj):
+        node = obj.dynamic_properties.to_node(ET.Element("None"))
+        node.find("ID").text = node.find("ID").text.replace("ID_", "")
+        
+        transform = Transform(obj.location, obj.rotation_quaternion, obj.scale, anno_coords = False)
+        transform.convert_to_anno_coords()
+        location = [format_float(f) for f in transform.location]
+        rotation = [format_float(f) for f in[transform.rotation[1], transform.rotation[2], transform.rotation[3], transform.rotation[0]]] #wxzy ->xzyw
+        scale = [format_float(f) for f in transform.scale]
+        mesh_node = find_or_create(node, "Mesh")
+        ET.SubElement(node, "Position").text = ' '.join(location).replace(".", ",")
+        ET.SubElement(mesh_node, "Orientation").text = ' '.join(rotation).replace(".", ",")
+        if len(set(scale)) == 1:
+            if scale[0] != format_float(1.0):
+                ET.SubElement(mesh_node, "Scale").text =  scale[0].replace(".", ",")
+        else:
+            ET.SubElement(mesh_node, "Scale").text = ' '.join(scale).replace(".", ",")
+
+        return node
+class IslandGamedataFile:
+    @classmethod
+    def add_blender_object_to_scene(cls, node) -> BlenderObject:
+        file_obj = add_empty_to_scene()  
+        return file_obj
+    
+    @classmethod
+    def xml_to_blender(cls, node: ET.Element, assetsXML) -> BlenderObject:
+        obj = cls.add_blender_object_to_scene(node)
+        obj["islandgamedataxml"] = ET.tostring(node)
+        obj.name = "ISLAND_GAMEDATA_FILE"
+        set_anno_object_class(obj, cls)
+        
+        
+        objects_nodes = node.findall("./GameSessionManager/AreaManagerData/None/Data/Content/AreaObjectManager/GameObject/objects")
+        for c, objects_node in enumerate(objects_nodes):
+            for i, obj_node in enumerate(objects_node):
+                print(f"Container {c+1} / {len(objects_nodes)}; Object {i+1} / {len(objects_node)},")
+                GameObject.xml_to_blender(obj_node, assetsXML)
+                
+    @classmethod
+    def blender_to_xml(cls, obj, randomize_ids = False):
+        """Only exports the prop grid. Not the heighmap or the prop FileNames."""
+        base_node = ET.fromstring(obj["islandgamedataxml"])
+        
+        objects_node_by_id = {}
+        objects_nodes = base_node.findall("./GameSessionManager/AreaManagerData/None/Data/Content/AreaObjectManager/GameObject/objects")
+        
+        default_objects_node = objects_nodes[0]
+        for c, objects_node in enumerate(objects_nodes):
+            for i, obj_node in enumerate(list(objects_node)):
+                obj_id = get_text(obj_node, "ID")
+                objects_node_by_id[obj_id] = objects_node
+                objects_node.remove(obj_node)
+        
+        for obj in bpy.data.objects:
+            if get_anno_object_class(obj) != GameObject:
+                continue
+            game_obj_node = GameObject.blender_to_xml(obj)
+            obj_id = get_text(game_obj_node, "ID")
+            objects_node = objects_node_by_id.get(obj_id, default_objects_node)
+            
+            if randomize_ids:
+                game_obj_node.find("ID").text = str(random.randint(-2**63, 2**63-1))
+            
+            objects_node.append(game_obj_node)
+            
+        return base_node   
+
 
 anno_object_classes = [
     NoAnnoObject, MainFile, Model, Cf7File,
     SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup,
-    Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig,SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, Material, IfoFile, Spline
+    Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig,SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, Material, IfoFile, Spline, IslandFile, PropGridInstance,
+    IslandGamedataFile, GameObject
 ]
 
 

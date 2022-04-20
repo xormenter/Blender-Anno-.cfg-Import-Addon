@@ -48,6 +48,7 @@ class FeedbackConfig():
         self.extract_guid_variations()
         self.extract_scale()
         self.default_state_dummy = get_required_text(self.node, "DefaultStateDummy")
+        self.start_dummy_group = get_text(self.node, "StartDummyGroup", "")
         self.extract_sequence()
 
     def extract_properties(self):
@@ -84,13 +85,21 @@ class FeedbackConfig():
             element = etree.Element("i")
             etree.SubElement(element, "hasValue").text = "1"
             if sequence_element_node.tag == "IdleAnimation":
-                etree.SubElement(element, "elementType").text = "1"
-                etree.SubElement(element, "m_IdleSequenceID").text = get_sequence(get_required_text(sequence_element_node, "m_IdleSequenceID"))
+                if self.start_dummy_group == "":
+                    
+                    etree.SubElement(element, "elementType").text = "1"
+                    etree.SubElement(element, "m_IdleSequenceID").text = get_sequence(get_required_text(sequence_element_node, "m_IdleSequenceID"))
+                    etree.SubElement(element, "ResetStartTime").text = "0"
+                else:
+                    #For more than one person, the only option seems to be this special element type 12. Format CDATA[4 * len(seq) seq]
+                    #Example: <m_SequenceIds>CDATA[20 1000 1001 1040 1010 3000]</m_SequenceIds>
+                    #For simplicity, we will use one single sequence.
+                    etree.SubElement(element, "elementType").text = "12"
+                    etree.SubElement(element, "m_SequenceIds").text = f"CDATA[4 {get_sequence(get_required_text(sequence_element_node, 'm_IdleSequenceID'))}]"
                 etree.SubElement(element, "MinPlayCount").text = get_required_text(sequence_element_node, "MinPlayCount")
                 etree.SubElement(element, "MaxPlayCount").text = get_required_text(sequence_element_node, "MaxPlayCount")
                 etree.SubElement(element, "MinPlayTime").text = "0"
                 etree.SubElement(element, "MaxPlayTime").text = "0"
-                etree.SubElement(element, "ResetStartTime").text = "0"
             if sequence_element_node.tag == "TimedIdleAnimation":
                 etree.SubElement(element, "elementType").text = "1"
                 etree.SubElement(element, "m_IdleSequenceID").text = get_sequence(get_required_text(sequence_element_node, "m_IdleSequenceID"))
@@ -128,13 +137,13 @@ class FeedbackConfig():
                 etree.SubElement(element, "TurnToDummyID").text = self.feedback_encoding.dummy_id_by_name.get(get_required_text(sequence_element_node, "TurnToDummy"), "0")
             self.sequence_elements.append(element)
 
-    def export_to_cf7(self, feedback_config_node):
+    def export_to_cf7(self, feedback_config_node, feedback_loop_mode):
         etree.SubElement(feedback_config_node, "hasValue").text = "1"
         etree.SubElement(feedback_config_node, "MainObject").text = "0"
         self.export_properties(feedback_config_node)
         self.export_guid_variations(feedback_config_node)
         fl_node = etree.SubElement(feedback_config_node, "FeedbackLoops") #no idea what this is...
-        etree.SubElement(fl_node, "k").text = "1"
+        etree.SubElement(fl_node, "k").text = str(feedback_loop_mode)
         etree.SubElement(fl_node, "v").text = "0"
         sequence_definitions_node = etree.SubElement(feedback_config_node, "SequenceDefinitions")
         sequence_definition_node = etree.SubElement(sequence_definitions_node, "i")
@@ -160,6 +169,7 @@ class FeedbackConfig():
         loop0_node = etree.SubElement(feedback_config_node, "Loop0")
         etree.SubElement(loop0_node, "hasValue").text = "1"
         loop0_default_state_node = etree.SubElement(loop0_node, "DefaultState")
+        start_dummy_group_node = etree.SubElement(loop0_node, "StartDummyGroup")
         etree.SubElement(loop0_default_state_node, "DummyName")
         etree.SubElement(loop0_default_state_node, "StartDummyGroup")
         etree.SubElement(loop0_default_state_node, "DummyId").text = "0"
@@ -181,7 +191,7 @@ class FeedbackConfig():
         etree.SubElement(loop1_node, "hasValue").text = "1"
         loop1_default_state_node = etree.SubElement(loop1_node, "DefaultState")
         etree.SubElement(loop1_default_state_node, "DummyName").text = self.default_state_dummy
-        etree.SubElement(loop1_default_state_node, "StartDummyGroup")
+        etree.SubElement(loop1_default_state_node, "StartDummyGroup").text = self.start_dummy_group
         etree.SubElement(loop1_default_state_node, "DummyId").text = self.feedback_encoding.dummy_id_by_name.get(self.default_state_dummy, "0")
         etree.SubElement(loop1_default_state_node, "SequenceID").text = "-1"
         etree.SubElement(loop1_default_state_node, "Visible").text = "1"
@@ -253,7 +263,7 @@ class SimpleAnnoFeedbackEncoding():
         for feedback_config_node in self.root.find("FeedbackConfigs").findall("FeedbackConfig"):
             self.feedback_configs.append(FeedbackConfig(feedback_config_node, self))
 
-    def as_cf7(self):
+    def as_cf7(self, feedback_loop_mode = 1):
         cf7root = etree.Element("cf7_imaginary_root")
         dummy_root = etree.SubElement(cf7root, "DummyRoot")
         self.export_dummies(dummy_root)
@@ -264,13 +274,13 @@ class SimpleAnnoFeedbackEncoding():
         feedback_configs_node = etree.SubElement(feedback_definition_node, "FeedbackConfigs")
         for feedback_config in self.feedback_configs:
             feedback_config_node = etree.SubElement(feedback_configs_node, "i")
-            feedback_config.export_to_cf7(feedback_config_node)
+            feedback_config.export_to_cf7(feedback_config_node, feedback_loop_mode)
         etree.SubElement(feedback_definition_node, "ValidSequenceIDs").text = "CDATA[8 0 1]"
 
         return cf7root
     
-    def write_as_cf7(self, filename):
-        cf7root = self.as_cf7()
+    def write_as_cf7(self, filename, feedback_loop_mode = 1):
+        cf7root = self.as_cf7(feedback_loop_mode)
         etree.indent(cf7root, space=" ")
         cf7tree_string = etree.tostring(cf7root, encoding='unicode', method='xml')
 

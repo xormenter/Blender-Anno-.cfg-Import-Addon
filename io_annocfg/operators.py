@@ -3,7 +3,7 @@ import bpy
 
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
-from bpy.props import StringProperty, BoolProperty, EnumProperty
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty
 from bpy.types import Operator, AddonPreferences
 from bpy.types import Object as BlenderObject
 import xml.etree.ElementTree as ET
@@ -20,7 +20,7 @@ from .simple_anno_feedback_encoding import SimpleAnnoFeedbackEncoding
 from .prefs import IO_AnnocfgPreferences
 from .anno_objects import get_anno_object_class, Transform, AnnoObject, MainFile, Model, SimpleAnnoFeedbackEncodingObject, \
     SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup, \
-    Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig, Light, IfoFile, Cf7File
+    Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig, Light, IfoFile, Cf7File, IslandFile, PropGridInstance, IslandGamedataFile, AssetsXML
 
 
 from .utils import data_path_to_absolute_path, to_data_path
@@ -62,7 +62,18 @@ class ExportAnnoCfg(Operator, ExportHelper):
         description="Auto convert the SimpleAnnoFeedbackEncoding to .cf7 and .fc after exporting it. Only relevant when using FeedbackType SimpleAnnoFeedbackEncoding.",
         default=True,
     )
-    
+    delete_material_lod_info: BoolProperty( #type: ignore
+        name="Delete MaterialLODInfos nodes",
+        description="Deletes all MaterialLODInfos nodes. These can cause issues when you add material slots or join meshes with different materials. Turn off when you haven't done such modifications.",
+        default=True,
+    )
+    feedback_loop_mode:  IntProperty( #type: ignore
+        name="FeedbackLoop Mode",
+        description="Only works with s.a.f.e. If 1, feedback is visible when active. If 0, feedback is visible when not active. Use 1 for production buildings and 0 for public buildings.",
+        default=1,
+        min = 0, 
+        max = 1,
+    )
     
     @classmethod
     def poll(cls, context):
@@ -114,12 +125,24 @@ class ExportAnnoCfg(Operator, ExportHelper):
                 return child_obj
         return None
     
+    def visit_and_delete_material_lod(self, node):
+        if node.find("MaterialLODInfos"):
+            node.remove(node.find("MaterialLODInfos"))
+        for child in list(node):
+            self.visit_and_delete_material_lod(child)
+    
     def export_cfg_file(self):
         print("EXPORT MAIN OBJ", self.main_obj.name)
         self.root = MainFile.blender_to_xml(self.main_obj, None, self.children_by_object)
+        
+                
+        if self.delete_material_lod_info:
+            self.visit_and_delete_material_lod(self.root)
+        
         tree = ET.ElementTree(self.root)
         ET.indent(tree, space="\t", level=0)
         tree.write(self.filepath)
+        
         self.report({'INFO'}, 'cfg export completed')
 
     def get_text(self, node, query, default = ""):
@@ -157,7 +180,7 @@ class ExportAnnoCfg(Operator, ExportHelper):
         tree.write(safe_filepath)
         if self.convert_safe_to_fc:
             safe = SimpleAnnoFeedbackEncoding(root)
-            safe.write_as_cf7(safe_filepath.with_suffix(".cf7"))
+            safe.write_as_cf7(safe_filepath.with_suffix(".cf7"), self.feedback_loop_mode)
             if IO_AnnocfgPreferences.get_path_to_fc_converter().exists():
                 subprocess.call(f"\"{IO_AnnocfgPreferences.get_path_to_fc_converter()}\" -w \"{safe_filepath.with_suffix('.cf7')}\" -y -o \"{safe_filepath.with_suffix('.fc')}\"")
 
@@ -230,7 +253,7 @@ class ImportAnnoCfg(Operator, ImportHelper):
             else:
                 self.import_cf7_file(self.path.with_suffix(".cf7"), file_obj)
 
-        self.report({'INFO'}, "Import completed! Version 2.0")
+        self.report({'INFO'}, "Import completed!")
         return {'FINISHED'}
     
     def import_subfile(self, context):
@@ -321,6 +344,84 @@ class ImportAnnoCfg(Operator, ImportHelper):
         return file_obj
 
 
+class ImportAnnoIsland(Operator, ImportHelper):
+    """Parses decoded Anno 1800 island xml files (or at least their prop grid and heightmap) and loads them into blender."""
+    bl_idname = "import.anno_island_files" 
+    bl_label = "Import Anno Island Files (.xml)"
+
+    # ImportHelper mixin class uses this
+    filename_ext = ".xml"
+
+    filter_glob: StringProperty( #type:  ignore
+        default="*.xml",
+        options={'HIDDEN'},
+        maxlen=255,  # Max internal buffer length, longer would be clamped.
+    )
+
+    def execute(self, context):
+        self.path = Path(self.filepath)
+        
+        if not self.path.suffix == ".xml" or not self.path.exists():
+            self.report({'ERROR_INVALID_INPUT'}, f"Invalid file or extension")
+            return {'CANCELLED'}
+        
+        if "gamedata" in self.path.stem:
+            print(self.path.name, " is a gamedata island file.")
+            tree = ET.parse(self.path)
+            root = tree.getroot()
+            
+            assetsXML = AssetsXML()
+            
+            file_obj = IslandGamedataFile.xml_to_blender(root, assetsXML)
+            
+            self.report({'INFO'}, "Import completed!")
+            return {"FINISHED"}
+        
+        tree = ET.parse(self.path)
+        root = tree.getroot()
+        
+        file_obj = IslandFile.xml_to_blender(root)
+        file_obj.name = "ISLAND_" + self.path.name
+
+        self.report({'INFO'}, "Import completed!")
+        return {'FINISHED'}
+
+class ExportAnnoIsland(Operator, ExportHelper):
+    """Exports the prop grid elements of an island file. Not the heightmap, etc. Cannot handle new props (yet). Exports ALL objects in this scene, so do not load multiple islands at once."""
+    bl_idname = "export.anno_island_files" 
+    bl_label = "Export Anno Island Files (.xml)"
+
+    # ImportHelper mixin class uses this
+    filename_ext = ".xml"
+
+    filter_glob: StringProperty( #type:  ignore
+        default="*.xml",
+        options={'HIDDEN'},
+        maxlen=255,  # Max internal buffer length, longer would be clamped.
+    )
+
+    def execute(self, context):
+        self.path = Path(self.filepath)
+        self.obj = context.active_object
+        if not self.obj or not get_anno_object_class(self.obj) in [IslandFile, IslandGamedataFile]:
+            self.report({'ERROR_INVALID_CONTEXT'}, f"ISLAND_FILE object needs to be selected.")
+            return {'CANCELLED'}
+        
+        root = get_anno_object_class(self.obj).blender_to_xml(self.obj)
+        if root is None:
+            return{'CANCELLED'}
+        tree = ET.ElementTree(root)
+        ET.indent(tree, space="\t", level=0)
+        tree.write(self.filepath)
+        self.report({'INFO'}, 'Island export completed.')
+        
+        return {'FINISHED'}
+    @classmethod
+    def poll(cls, context):
+        if not context.active_object:
+            return False
+        return get_anno_object_class(context.active_object) in [IslandFile, IslandGamedataFile]
+    
 
 class ImportAnnoModelOperator(Operator, ImportHelper):
     """Imports the selected .glb/.rdm file as MODEL_."""
@@ -460,6 +561,7 @@ class ExportAnnoModelOperator(Operator, ExportHelper):
         try:
             data_path = to_data_path(self.path)
             self.obj.dynamic_properties.set("FileName", data_path.as_posix(), replace = True)
+            
         except ValueError:
             self.report({'INFO'}, f'Warning, export not relative to rda folder, could not adapt FileName')
             pass
@@ -574,7 +676,7 @@ class OBJECT_OT_add_anno_object(Operator, AddObjectHelper):
         return {'FINISHED'}
 
 
-class ImportAllPropsOperator(Operator):
+class ImportAllPropsOperator(Operator, ImportHelper):
     """Import all props (located in the rda folder) into this file. Use this to create an asset library from this .blend file. 
     As there are thousands of props, it might take a lot of time (just go outside for a walk or something).
     Ignores all props that cannot be loaded as a 3d object (when the rdm converter fails). As this happens with almost all decal_details, they are ignored to save time."""
@@ -582,107 +684,54 @@ class ImportAllPropsOperator(Operator):
     bl_idname = "anno_props_library.import_all"
     bl_label = "Import All Anno Props"
     
-    #model operator from https://blender.stackexchange.com/questions/47663/how-to-handle-modal-operator-events-in-a-single-loop 
-    def invoke(self, context, event):
-        self._iter = iter(self.modal_iter(context))
-        self._iter.send(None)
-        result = self._iter.send(event)
-
-        if 'RUNNING_MODAL' in result:
-            wm = context.window_manager
-            wm.modal_handler_add(self)
-        return result
-
+    filename_ext = "."
+    use_filter_folder = True
+    
+    
     def execute(self, context):
-        return self.invoke(context, None)
-
-    def modal(self, context, event):
-        return self._iter.send(event)
-
-    def cancel(self, context):
-        self._iter.send(None)
+        self.report({'INFO'}, f"Importing all props from {self.filepath}...")
+        dirpath = Path(self.filepath)
+        rda_path = IO_AnnocfgPreferences.get_path_to_rda_folder()
+        if not dirpath.is_relative_to(rda_path):
+            self.report({'ERROR_INVALID_INPUT'}, f"Invalid folder. Needs to be inside your rda folder.")
+            return {"CANCELLED"}
+        if not dirpath.is_dir():
+            self.report({'ERROR_INVALID_INPUT'}, f"Invalid folder. Needs to be inside your rda folder.")
+            return {"CANCELLED"}
         
-    def modal_iter(self, context):
-        event = yield
-        if event is not None:
-            print("Operator.invoke(..., event=%r)" % event.type)
-            if event.type == 'ESC':
-                yield {'CANCELLED'}
-                return
-        # Section typically handled by modal()
-        if event is not None:
-            i = 0
-            y_loc = 0
-            for prop_folder in IO_AnnocfgPreferences.get_path_to_rda_folder().joinpath("data").rglob('graphics'):
-                for p in prop_folder.rglob('*.prp'):
-                    if "decal_detail" in p.name:
-                        continue
-                    print(p)
-                    i+=1
-                    print("iteration, ", i)
-                    if i % 50 == 0:
-                        event = yield {'RUNNING_MODAL'}
-                    data_path = to_data_path(p).as_posix()
-                    node = ET.fromstring(f"""
-                        <Config>
-                            <ConfigType>PROP</ConfigType>
-                            <FileName>{data_path}</FileName>
-                            <Name>PROP_{p.stem}</Name>
-                            <Flags>1</Flags>
-                        </Config>                  
-                    """)
-                    try:
-                        blender_obj = Prop.xml_to_blender(node)
-                        if blender_obj.type == "EMPTY":
-                            bpy.ops.object.delete()
-                            continue
-                    except:
-                        continue
-                    blender_obj.location.y = y_loc
-                    y_loc += 1
-                    blender_obj.name = p.name
-                    blender_obj.asset_mark()
-                    for directory in PurePath(data_path).parts[:-1]:
-                        if directory not in ["graphics", "data"]:
-                            blender_obj.asset_data.tags.new(directory)
-                    bpy.ops.ed.lib_id_generate_preview({"id": blender_obj})
-            yield {'FINISHED'}
-        if event is None:
-            # Section typically handled by cancel()
-            yield  # --> None, since we're closed externally
+        i = 0
+        y_loc = 0
+        for p in dirpath.rglob('*.prp'):
+            if "decal_detail" in p.name:
+                continue
+            print(p)
+            i+=1
+            data_path = to_data_path(p).as_posix()
+            node = ET.fromstring(f"""
+                <Config>
+                    <ConfigType>PROP</ConfigType>
+                    <FileName>{data_path}</FileName>
+                    <Name>PROP_{p.stem}</Name>
+                    <Flags>1</Flags>
+                </Config>                  
+            """)
+            try:
+                blender_obj = Prop.xml_to_blender(node)
+                if blender_obj.type == "EMPTY":
+                    bpy.ops.object.delete()
+                    continue
+            except:
+                continue
+            blender_obj.location.y = y_loc
+            y_loc += 1
+            blender_obj.name = p.name
+            blender_obj.asset_mark()
+            for directory in PurePath(data_path).parts[:-1]:
+                if directory not in ["graphics", "data"]:
+                    blender_obj.asset_data.tags.new(directory)
+            bpy.ops.ed.lib_id_generate_preview({"id": blender_obj})
+        return {"FINISHED"}
 
-        yield {'FINISHED'}
-
-        
-    # def execute(self, context):
-    #     i = 0
-    #     y_loc = 0
-    #     for prop_folder in IO_AnnocfgPreferences.get_path_to_rda_folder().joinpath("data").rglob('graphics'):
-    #         for p in prop_folder.rglob('*.prp'):
-    #             print(p)
-    #             i+=1
-    #             print("iteration, ", i)
-    #             data_path = to_data_path(p).as_posix()
-    #             node = ET.fromstring(f"""
-    #                 <Config>
-    #                     <ConfigType>PROP</ConfigType>
-    #                     <FileName>{data_path}</FileName>
-    #                     <Name>PROP_{p.stem}</Name>
-    #                     <Flags>1</Flags>
-    #                 </Config>                  
-    #             """)
-    #             blender_obj = Prop.xml_to_blender(node)
-    #             if blender_obj.type == "EMPTY":
-    #                 continue
-    #             blender_obj.location.y = y_loc
-    #             y_loc += 1
-    #             blender_obj.name = p.name
-    #             blender_obj.asset_mark()
-    #             for directory in PurePath(data_path).parts[:-1]:
-    #                 if directory not in ["graphics", "data"]:
-    #                     blender_obj.asset_data.tags.new(directory)
-    #             bpy.ops.ed.lib_id_generate_preview({"id": blender_obj})
-    #     return {'FINISHED'}
 
 classes = (
     ExportAnnoCfg,
@@ -692,6 +741,8 @@ classes = (
     ImportAnnoPropOperator,
     OBJECT_OT_add_anno_object,
     ImportAllPropsOperator,
+    ImportAnnoIsland,
+    ExportAnnoIsland,
 )
 
 def add_anno_object_button(self, context):
@@ -703,6 +754,7 @@ def add_anno_object_button(self, context):
 
 def menu_func_import(self, context):
     self.layout.operator(ImportAnnoCfg.bl_idname, text="Anno (.cfg)")
+
 
 def menu_func_export_cfg(self, context):
     self.layout.operator(ExportAnnoCfg.bl_idname, text="Anno (.cfg)")
@@ -718,15 +770,22 @@ def menu_func_import_prop(self, context):
 def menu_func_import_all_props(self, context):
     self.layout.operator(ImportAllPropsOperator.bl_idname, text="Import Anno Prop Assets")
 
+def menu_func_import_island(self, context):
+    self.layout.operator(ImportAnnoIsland.bl_idname, text="Anno Island (.xml)")
+
+def menu_func_export_island(self, context):
+    self.layout.operator(ExportAnnoIsland.bl_idname, text="Anno Island (.xml)")
 
 import_funcs = [
     menu_func_import,
     menu_func_import_model,
     menu_func_import_prop,
+    menu_func_import_island,
 ]
 export_funcs = [
     menu_func_export_cfg,
     menu_func_export_model,
+    menu_func_export_island,
 ]
 
 def register():
