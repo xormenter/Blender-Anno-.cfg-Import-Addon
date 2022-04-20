@@ -48,6 +48,7 @@ class FeedbackConfig():
         self.extract_guid_variations()
         self.extract_scale()
         self.default_state_dummy = get_required_text(self.node, "DefaultStateDummy")
+        self.start_dummy_group = get_text(self.node, "StartDummyGroup", "")
         self.extract_sequence()
 
     def extract_properties(self):
@@ -84,13 +85,21 @@ class FeedbackConfig():
             element = etree.Element("i")
             etree.SubElement(element, "hasValue").text = "1"
             if sequence_element_node.tag == "IdleAnimation":
-                etree.SubElement(element, "elementType").text = "1"
-                etree.SubElement(element, "m_IdleSequenceID").text = get_sequence(get_required_text(sequence_element_node, "m_IdleSequenceID"))
+                if self.start_dummy_group == "":
+                    
+                    etree.SubElement(element, "elementType").text = "1"
+                    etree.SubElement(element, "m_IdleSequenceID").text = get_sequence(get_required_text(sequence_element_node, "m_IdleSequenceID"))
+                    etree.SubElement(element, "ResetStartTime").text = "0"
+                else:
+                    #For more than one person, the only option seems to be this special element type 12. Format CDATA[4 * len(seq) seq]
+                    #Example: <m_SequenceIds>CDATA[20 1000 1001 1040 1010 3000]</m_SequenceIds>
+                    #For simplicity, we will use one single sequence.
+                    etree.SubElement(element, "elementType").text = "12"
+                    etree.SubElement(element, "m_SequenceIds").text = f"CDATA[4 {get_sequence(get_required_text(sequence_element_node, 'm_IdleSequenceID'))}]"
                 etree.SubElement(element, "MinPlayCount").text = get_required_text(sequence_element_node, "MinPlayCount")
                 etree.SubElement(element, "MaxPlayCount").text = get_required_text(sequence_element_node, "MaxPlayCount")
                 etree.SubElement(element, "MinPlayTime").text = "0"
                 etree.SubElement(element, "MaxPlayTime").text = "0"
-                etree.SubElement(element, "ResetStartTime").text = "0"
             if sequence_element_node.tag == "TimedIdleAnimation":
                 etree.SubElement(element, "elementType").text = "1"
                 etree.SubElement(element, "m_IdleSequenceID").text = get_sequence(get_required_text(sequence_element_node, "m_IdleSequenceID"))
@@ -160,6 +169,7 @@ class FeedbackConfig():
         loop0_node = etree.SubElement(feedback_config_node, "Loop0")
         etree.SubElement(loop0_node, "hasValue").text = "1"
         loop0_default_state_node = etree.SubElement(loop0_node, "DefaultState")
+        start_dummy_group_node = etree.SubElement(loop0_node, "StartDummyGroup")
         etree.SubElement(loop0_default_state_node, "DummyName")
         etree.SubElement(loop0_default_state_node, "StartDummyGroup")
         etree.SubElement(loop0_default_state_node, "DummyId").text = "0"
@@ -181,7 +191,7 @@ class FeedbackConfig():
         etree.SubElement(loop1_node, "hasValue").text = "1"
         loop1_default_state_node = etree.SubElement(loop1_node, "DefaultState")
         etree.SubElement(loop1_default_state_node, "DummyName").text = self.default_state_dummy
-        etree.SubElement(loop1_default_state_node, "StartDummyGroup")
+        etree.SubElement(loop1_default_state_node, "StartDummyGroup").text = self.start_dummy_group
         etree.SubElement(loop1_default_state_node, "DummyId").text = self.feedback_encoding.dummy_id_by_name.get(self.default_state_dummy, "0")
         etree.SubElement(loop1_default_state_node, "SequenceID").text = "-1"
         etree.SubElement(loop1_default_state_node, "Visible").text = "1"
