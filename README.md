@@ -75,6 +75,8 @@ To use it:
 
 7. Finally, when exporting the MAIN_FILE object, select the FeedbackType SimpleAnnnoFeedbackEncoding. It will write a .xml file, convert it to .cf7 and convert that to .fc. 
 
+Advanced: If you want the same kind of feedback unit on multiple locations doing the same thing, you can select a DummyGroup as StartDummyGroup (and MultiplyActorByDummyCount). This requires all dummies in the group to be named in the following fashion: groupname_0, groupname_1, and so on. Then add a IdleAnimation sequence element. 
+
 ### Which animation sequence fits?
 Thankfully, Taludas went through the effort of recording all animations for all worker units. Have a look:
 - Old World Workers: https://www.youtube.com/watch?v=dhI8R6WP7-E
