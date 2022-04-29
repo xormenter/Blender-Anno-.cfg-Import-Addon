@@ -7,7 +7,7 @@ This means that if you have all those tools, you don't have to convert anything 
 # Requirements
 - Blender **3** https://www.blender.org/
 
-**If not using v.3.2+, you'll need to update the gltf importer addon manually!** (A required fix for a bug will only come with the blender 3.2 installer.) For this, download the repository from https://github.com/KhronosGroup/glTF-Blender-IO and overwrite the `io_scene_gltf_2`addon folder in your blender installation. 
+**If not using v.3.2+, you'll need to update the gltf importer addon manually!** (A required fix for a bug will only come with the blender 3.2 installer.) For this, download the *repository* from https://github.com/KhronosGroup/glTF-Blender-IO and overwrite the `io_scene_gltf_2`addon folder in your blender installation with the `io_scene_gltf_2`folder found inside the `addons` folder of the downloaded repository. DO NOT download the most recent release of glTF-Blender-IO. The bugfix isn't released yet!
 
 For full functionality you need:
 - rdm4 converter https://github.com/lukts30/rdm4
