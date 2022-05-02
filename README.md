@@ -82,6 +82,9 @@ Thankfully, Taludas went through the effort of recording all animations for all 
 - Old World Workers: https://www.youtube.com/watch?v=dhI8R6WP7-E
 - New World Workers: https://www.youtube.com/watch?v=7noO6grwhts
 
+With the newest versions, all models with animations can use the "Load Animation" button to automatically load all animations into blender. This makes it easy to see which one you want. Note: Quite a few animations don't get properly converted by the rdm4 converter, so be prepared to get a lot of empty animations. Also note that changes you make there will not be exported.
+If you want the animated models to be textured, select all of them (select hierarchy in outliner), then the textured model. Press `Ctrl+L`and link the materials. I'd also recommend to use select hierarchy + toggle visibility to only view one animation at a time. 
+
 # Asset Library
 ## Setup 
 To set up  the prop asset library, create a fresh .blend file. Click the `File->Import Anno Prop Asset` button. The addon will now load *all* prop assets located somewhere in the selected folder (which needs to be somewhere inside your rda folder). This will take a long time (go for a walk, watch a movie, sleep). After that save this .blend file in a user-library directory. The default one is `C:\Users\<USERNAME>\Documents\Blender\Assets` (but you can add more in the blender preferences). Now every prop is marked as an asset and tagged with more or less useful tags. If you want, you can further categorize the props (I suggest to at least put everything into a "Props" category). Close this file.
