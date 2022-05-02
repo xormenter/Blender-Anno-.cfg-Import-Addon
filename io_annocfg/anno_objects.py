@@ -350,6 +350,16 @@ class XMLPropertyGroup(PropertyGroup):
     
     hidden : BoolProperty(name = "Hide", default = False)
     
+    def reset(self):
+        self.feedback_sequence_properties.clear()
+        self.boolean_properties.clear()
+        self.filename_properties.clear()
+        self.string_properties.clear()
+        self.int_properties.clear()
+        self.float_properties.clear()
+        self.color_properties.clear()
+        self.dynamic_properties.clear()
+    
     def get_string(self, tag, default = None):
         for item in self.string_properties:
             if item.tag == tag:
@@ -475,6 +485,18 @@ class ConvertCf7DummyToDummy(Operator):
         obj.name = obj.name.replace("Cf7", "")
         return {'FINISHED'}
 
+class LoadAnimations(Operator):
+    bl_idname = "object.load_animations"
+    bl_label = "Load Animations"
+
+    def execute(self, context):
+        obj = context.active_object
+        node = obj.dynamic_properties.to_node(ET.Element("Config"))
+        if node.find("Animations") is not None:
+            ET.SubElement(node.find("Animations"), "FileName").text = get_text(node, "FileName")
+            AnimationsNode.xml_to_blender(node.find("Animations"), obj)
+        return {'FINISHED'}
+
 class PT_AnnoObjectPropertyPanel(Panel):
     bl_label = "Anno Object"
     bl_idname = "VIEW_3D_PT_AnnoObject"
@@ -500,6 +522,8 @@ class PT_AnnoObjectPropertyPanel(Panel):
         row.enabled = False
         if "Cf7" in obj.anno_object_class_str:
             col.operator(ConvertCf7DummyToDummy.bl_idname, text = "Convert to SimpleAnnoFeedback")
+        if "Model" in obj.anno_object_class_str:
+            col.operator(LoadAnimations.bl_idname, text = "Load Animations")
         col.prop(obj, "parent")
         dyn = obj.dynamic_properties
         dyn.draw(col)
@@ -1259,6 +1283,37 @@ def import_model_to_scene(data_path: Union[str, Path, None]) -> BlenderObject:
     print(obj.name, obj.type)
     return obj
 
+def convert_animation_to_glb(model_fullpath, animation_fullpath: Path):
+    #Usage: ./rdm4-bin.exe -i rdm/container_ship_tycoons_lod1.rdm -sam anim/container_ship_tycoons_idle01.rdm
+    rdm4_path = IO_AnnocfgPreferences.get_path_to_rdm4()
+    if rdm4_path.exists() and animation_fullpath.exists() and model_fullpath.exists():
+        out_filename = animation_fullpath.parent
+        subprocess.call(f"\"{rdm4_path}\" -i \"{model_fullpath}\" -sam \"{animation_fullpath}\" --force --outdst \"{out_filename}\"", shell = True)
+
+
+def import_animated_model_to_scene(model_data_path: Union[str, Path, None], animation_data_path) -> BlenderObject:
+    print(model_data_path, animation_data_path)
+    if not model_data_path or not animation_data_path:
+        print("invalid data path for animation or model")
+        return add_empty_to_scene()
+    fullpath = data_path_to_absolute_path(animation_data_path)
+    if fullpath is None:
+        return None
+    out_fullpath = Path(fullpath.parent, Path("out.glb"))
+    if out_fullpath.exists():
+        out_fullpath.unlink()
+    if fullpath.exists():
+        convert_animation_to_glb(data_path_to_absolute_path(model_data_path), fullpath)
+    fullpath = out_fullpath
+    
+    if not fullpath.exists():
+        #self.report({'INFO'}, f"Missing file: Cannot find glb model {data_path}.")
+        return None
+    ret = bpy.ops.import_scene.gltf(filepath=str(fullpath))
+    obj = bpy.context.active_object
+    print(obj.name, obj.type)
+    return obj
+
 def add_empty_to_scene(empty_type: str = "SINGLE_ARROW") -> BlenderObject:
     """Adds an empty of empty_type to the scene.
 
@@ -1526,7 +1581,27 @@ class Cloth(AnnoObject):
         return imported_obj
 
 
-
+class AnimationsNode(AnnoObject):
+    @classmethod
+    def add_blender_object_to_scene(cls, node) -> BlenderObject:
+        anim_obj = add_empty_to_scene()
+        model_file_name = get_text_and_delete(node, "FileName")
+        for anim_node in list(node):
+            ET.SubElement(anim_node, "ModelFileName").text = model_file_name
+            Animation.xml_to_blender(anim_node, anim_obj)
+        anim_obj.scale.x = -1
+        return anim_obj
+class Animation(AnnoObject):
+    @classmethod
+    def add_blender_object_to_scene(cls, node) -> BlenderObject:
+        model_data_path = get_text_and_delete(node, "ModelFileName")
+        anim_data_path = get_text(node, "FileName")
+        imported_obj = import_animated_model_to_scene(model_data_path, anim_data_path)
+        
+        if imported_obj is None:
+            return add_empty_to_scene()
+        
+        return imported_obj
 
 class Model(AnnoObject):
     has_transform = True
@@ -1553,6 +1628,12 @@ class Model(AnnoObject):
         imported_obj = import_model_to_scene(data_path)
         if imported_obj is None:
             return add_empty_to_scene()
+        
+        # Let's not always load the animations, might get a bit confusing...
+        # if node.find("Animations") is not None:
+        #     ET.SubElement(node.find("Animations"), "FileName").text = data_path
+        #     AnimationsNode.xml_to_blender(node.find("Animations"), imported_obj)
+        
         return imported_obj
     
 
@@ -1694,6 +1775,7 @@ class Prop(AnnoObject):
             try: #If the reference prop has already been deleted, we cannot copy it.
                 prop_obj = cls.prop_obj_blueprints[prop_filename].copy() #Can fail.
                 bpy.context.scene.collection.objects.link(prop_obj)
+                prop_obj.dynamic_properties.reset() #Fix doubled properties
                 return prop_obj
             except:
                 pass
@@ -2689,7 +2771,7 @@ anno_object_classes = [
     NoAnnoObject, MainFile, Model, Cf7File,
     SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup,
     Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig,SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, Material, IfoFile, Spline, IslandFile, PropGridInstance,
-    IslandGamedataFile, GameObject
+    IslandGamedataFile, GameObject, AnimationsNode, Animation
 ]
 
 
@@ -2715,6 +2797,7 @@ classes = [
     
     PT_AnnoMaterialObjectPropertyPanel,
     ConvertCf7DummyToDummy,
+    LoadAnimations,
     
     XMLPropertyGroup,
     PT_AnnoObjectPropertyPanel,
