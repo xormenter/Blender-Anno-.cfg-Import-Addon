@@ -16,7 +16,7 @@ import bmesh
 import sys
 def str_to_class(classname):
     return getattr(sys.modules[__name__], classname)
-
+from collections import defaultdict
 from math import radians
 from .prefs import IO_AnnocfgPreferences
 from .utils import data_path_to_absolute_path, to_data_path
@@ -208,8 +208,13 @@ class FloatPropertyGroup(PropertyGroup):
     value : FloatProperty(name = "", default = 0.0)
     
 class ColorPropertyGroup(PropertyGroup):
-    tag : StringProperty(name = "", default = "SomeFloat")
+    tag : StringProperty(name = "", default = "SomeColor")
     value : FloatVectorProperty(name = "", default = [0.0, 0.0, 0.0], subtype = "COLOR", min= 0.0, max = 1.0)
+
+class ObjectPointerPropertyGroup(PropertyGroup):
+    tag : StringProperty(name = "", default = "SomeObject")
+    value : PointerProperty(name = "", type= bpy.types.Object)
+
 
 class Converter(ABC):
     @classmethod
@@ -283,6 +288,20 @@ class FeedbackSequenceConverter(Converter):
     def to_string(cls, value): 
         seq_id = feedback_enums.SEQUENCE_ID_BY_NAME.get(value, -1)
         return str(seq_id)
+    
+class ObjectPointerConverter(Converter):
+    @classmethod
+    def data_type(cls):
+        return string
+    @classmethod
+    def from_string(cls, s): 
+        return bpy.data.objects[s]
+    @classmethod
+    def to_string(cls, value): 
+        if value is None:
+            return ""
+        return value.name
+
 
 class ColorConverter(Converter):
     @classmethod
@@ -318,6 +337,8 @@ converter_by_tag = {
     "GLOW_ENABLED": BoolConverter,
     "SequenceID": FeedbackSequenceConverter,
     "m_IdleSequenceID": FeedbackSequenceConverter,
+    "BlenderModelID": ObjectPointerConverter,
+    "BlenderParticleID": ObjectPointerConverter,
 }
 
 def get_converter_for(tag, value_string):
@@ -345,10 +366,12 @@ class XMLPropertyGroup(PropertyGroup):
     int_properties : CollectionProperty(name = "Ints", type = IntPropertyGroup)
     float_properties : CollectionProperty(name = "Floats", type = FloatPropertyGroup)
     color_properties : CollectionProperty(name = "Colors", type = ColorPropertyGroup)
+    object_pointer_properties : CollectionProperty(name = "Objects", type = ObjectPointerPropertyGroup)
     dynamic_properties : CollectionProperty(name = "DynamicProperties", type = XMLPropertyGroup)
     
     
     hidden : BoolProperty(name = "Hide", default = False)
+    deleted : BoolProperty(name = "Delete", default = False)
     
     def reset(self):
         self.feedback_sequence_properties.clear()
@@ -358,8 +381,25 @@ class XMLPropertyGroup(PropertyGroup):
         self.int_properties.clear()
         self.float_properties.clear()
         self.color_properties.clear()
+        self.object_pointer_properties.clear()
         self.dynamic_properties.clear()
+        self.deleted = False
+        self.hidden = False
     
+    def remove(self, tag):
+        for container in [self.feedback_sequence_properties, 
+                          self.boolean_properties,
+                          self.filename_properties,
+                          self.string_properties,
+                          self.int_properties,
+                          self.float_properties,
+                          self.color_properties,
+                          self.dynamic_properties]:
+            for i,prop in enumerate(container):
+                if prop.tag == tag:
+                    container.remove(i)
+                    return True
+        return False
     def get_string(self, tag, default = None):
         for item in self.string_properties:
             if item.tag == tag:
@@ -383,6 +423,7 @@ class XMLPropertyGroup(PropertyGroup):
             IntConverter: self.int_properties,
             FloatConverter: self.float_properties,
             ColorConverter: self.color_properties,
+            ObjectPointerConverter: self.object_pointer_properties,
             FeedbackSequenceConverter: self.feedback_sequence_properties,
         }
         
@@ -421,6 +462,7 @@ class XMLPropertyGroup(PropertyGroup):
                             (self.int_properties, IntConverter),
                             (self.filename_properties, StringConverter),
                             (self.float_properties, FloatConverter),
+                            (self.object_pointer_properties, ObjectPointerConverter),
                             (self.boolean_properties, BoolConverter),
                         ]:
             for prop in property_group:
@@ -430,21 +472,25 @@ class XMLPropertyGroup(PropertyGroup):
                 #find_or_create(target_node, prop.tag).text = value_string
                 ET.SubElement(target_node, prop.tag).text = value_string
         for dyn_prop in self.dynamic_properties:
+            if dyn_prop.deleted:
+                continue
             subnode = ET.SubElement(target_node, dyn_prop.tag)
             dyn_prop.to_node(subnode)
         return target_node
     
-    def draw(self, layout, split_ratio = 0.3):
+    def draw(self, layout, split_ratio = 0.3, first_level_property = True):
         col = layout.column()
         header = col.row()
-        split = header.split(factor=0.8)
+        split = header.split(factor=0.6)
         split.label(text = f"{self.tag}: {self.config_type}")
-        split.prop(self, "hidden")
+        split.prop(self, "hidden", icon = "HIDE_OFF")
+        if not first_level_property:
+            split.prop(self, "deleted", icon = "PANEL_CLOSE")
         if self.hidden:
             return
         col.separator(factor = 1.0)
         for kw_properties in [self.feedback_sequence_properties, self.filename_properties,self.boolean_properties,
-                              self.int_properties, self.float_properties, self.string_properties, self.color_properties]:
+                              self.int_properties, self.float_properties, self.string_properties, self.color_properties, self.object_pointer_properties]:
             for item in kw_properties:
                 row = col.row()
                 split = row.split(factor=split_ratio)
@@ -453,8 +499,10 @@ class XMLPropertyGroup(PropertyGroup):
                 split.prop(item, "value")
         
         for item in self.dynamic_properties:
+            if item.deleted:
+                continue
             box = col.box()
-            item.draw(box, split_ratio)
+            item.draw(box, split_ratio, False)
     
 
 class PT_AnnoScenePropertyPanel(Panel):
@@ -485,16 +533,44 @@ class ConvertCf7DummyToDummy(Operator):
         obj.name = obj.name.replace("Cf7", "")
         return {'FINISHED'}
 
+class DuplicateDummy(Operator):
+    """Duplicates the dummy and gives the duplicate a higher id. Assumes a name like dummy_42."""
+    bl_idname = "object.duplicatedummy"
+    bl_label = "Duplicate Dummy"
+
+    def execute(self, context):
+        obj = context.active_object
+        duplicate = obj.copy()
+        bpy.context.scene.collection.objects.link(duplicate)
+        name = duplicate.dynamic_properties.get_string("Name")
+        head = name.rstrip('0123456789')
+        tail = name[len(head):]
+        tail = str(int(tail)+1)
+        name = head + tail
+        duplicate.dynamic_properties.set("Name", name, replace = True)
+        duplicate.name = "Dummy_" + name
+        return {'FINISHED'}
+
+
 class LoadAnimations(Operator):
+    """Loads all animations specified in the animations section of this model."""
     bl_idname = "object.load_animations"
     bl_label = "Load Animations"
 
     def execute(self, context):
         obj = context.active_object
         node = obj.dynamic_properties.to_node(ET.Element("Config"))
-        if node.find("Animations") is not None:
-            ET.SubElement(node.find("Animations"), "FileName").text = get_text(node, "FileName")
-            AnimationsNode.xml_to_blender(node.find("Animations"), obj)
+        animations_node = node.find("Animations")
+        if animations_node is not None:
+            
+            animations_container = AnimationsNode.xml_to_blender(ET.Element("Animations"), obj)
+            animations_container.name = "ANIMATIONS_"+ obj.name.replace("MODEL_", "")
+            
+            for i, anim_node in enumerate(list(animations_node)):
+                ET.SubElement(anim_node, "ModelFileName").text = get_text(node, "FileName")
+                ET.SubElement(anim_node, "AnimationIndex").text = str(i)
+                Animation.xml_to_blender(anim_node, animations_container)
+            obj.dynamic_properties.remove("Animations")
         return {'FINISHED'}
 
 class PT_AnnoObjectPropertyPanel(Panel):
@@ -524,6 +600,8 @@ class PT_AnnoObjectPropertyPanel(Panel):
             col.operator(ConvertCf7DummyToDummy.bl_idname, text = "Convert to SimpleAnnoFeedback")
         if "Model" in obj.anno_object_class_str:
             col.operator(LoadAnimations.bl_idname, text = "Load Animations")
+        if "Dummy" == obj.anno_object_class_str:
+            col.operator(DuplicateDummy.bl_idname, text = "Duplicate Dummy (ID Increment)")
         col.prop(obj, "parent")
         dyn = obj.dynamic_properties
         dyn.draw(col)
@@ -1294,7 +1372,7 @@ def convert_animation_to_glb(model_fullpath, animation_fullpath: Path):
 def import_animated_model_to_scene(model_data_path: Union[str, Path, None], animation_data_path) -> BlenderObject:
     print(model_data_path, animation_data_path)
     if not model_data_path or not animation_data_path:
-        print("invalid data path for animation or model")
+        print("Invalid data path for animation or model")
         return add_empty_to_scene()
     fullpath = data_path_to_absolute_path(animation_data_path)
     if fullpath is None:
@@ -1348,6 +1426,9 @@ class AnnoObject(ABC):
     material_class = Material
     
     child_anno_object_types: Dict[str, type] = {}
+    #f.e. Animations->Type,  <Animations><A></A><A></A><A></A></Animations>
+    child_anno_object_types_without_container: Dict[str, type] = {}
+    #f.e. A->Type, <A></A><A></A><A></A>
     
 
     
@@ -1371,23 +1452,41 @@ class AnnoObject(ABC):
         return cls.xml_to_blender(node)
     
     @classmethod
-    def node_to_property_node(self, node, obj):
+    def node_to_property_node(self, node, obj, object_names_by_type):
         return node
     @classmethod
     def property_node_to_node(self, property_node, obj):
         return property_node
     
     @classmethod
-    def add_children_from_xml(cls, node, obj):
+    def add_children_from_xml(cls, node, obj, object_names_by_type = defaultdict(dict)):
+        # object_names_by_type: f.e. {"Model":[0:"MODEL_mainbody", 1:"MODEL_bucket"], ...}
+        # Required to resolve modelID to a pointer towards that model (TrackElements).
+        classes_that_need_index_information = [AnimationSequences, AnimationSequence, Track, TrackElement]
         for subnode_name, subcls in cls.child_anno_object_types.items():
             subnodes = node.find(subnode_name)
             if subnodes is not None:
-                for subnode in list(subnodes):
-                    child_obj = subcls.xml_to_blender(subnode, obj)
+                for i, subnode in enumerate(list(subnodes)):
+                    child_obj = None
+                    if subcls in classes_that_need_index_information:
+                        child_obj = subcls.xml_to_blender(subnode, obj, object_names_by_type)
+                    else:
+                        child_obj = subcls.xml_to_blender(subnode, obj)
+                    object_names_by_type[subcls.__name__][i] = child_obj.name
                 node.remove(subnodes)
+        for subnode_name, subcls in cls.child_anno_object_types_without_container.items():
+            subnodes = node.findall(subnode_name)
+            for i, subnode in enumerate(list(subnodes)):
+                child_obj = None
+                if subcls in classes_that_need_index_information:
+                    child_obj = subcls.xml_to_blender(subnode, obj, object_names_by_type)
+                else:
+                    child_obj = subcls.xml_to_blender(subnode, obj)
+                object_names_by_type[subcls.__name__][i] = child_obj.name
+                node.remove(subnode)
         
     @classmethod
-    def xml_to_blender(cls: Type[T], node: ET.Element, parent_object = None) -> BlenderObject:
+    def xml_to_blender(cls: Type[T], node: ET.Element, parent_object = None, object_names_by_type = defaultdict(dict)) -> BlenderObject:
         obj = cls.add_blender_object_to_scene(node)
         set_anno_object_class(obj, cls)
         obj.name = cls.blender_name_from_node(node)
@@ -1414,8 +1513,8 @@ class AnnoObject(ABC):
                 node.remove(materials_node)
             cls.apply_materials_to_object(obj, materials)
         
-        cls.add_children_from_xml(node, obj)
-        node = cls.node_to_property_node(node, obj)
+        cls.add_children_from_xml(node, obj, object_names_by_type)
+        node = cls.node_to_property_node(node, obj, object_names_by_type)
         obj.dynamic_properties.from_node(node)
         return obj
     
@@ -1426,11 +1525,15 @@ class AnnoObject(ABC):
             subcls = get_anno_object_class(child_obj)
             if subcls == NoAnnoObject:
                 continue
+            if subcls in cls.child_anno_object_types_without_container.values():
+                subnode =  subcls.blender_to_xml(child_obj, node, child_map)
+                continue
             if subcls not in container_name_by_subclass:
                 continue
             container_name = container_name_by_subclass[subcls]
             container_subnode = find_or_create(node, container_name)
             subnode = subcls.blender_to_xml(child_obj, container_subnode, child_map)
+        
 
     @classmethod
     def blender_to_xml(cls, obj: BlenderObject, parent_node: ET.Element, child_map: Dict[str, BlenderObject]) -> ET.Element:
@@ -1462,8 +1565,11 @@ class AnnoObject(ABC):
                     material.to_xml_node(parent = materials_node)
                 
         cls.add_children_from_obj(obj, node, child_map) 
-
+        cls.blender_to_xml_finish(obj, node)
         return node
+    @classmethod
+    def blender_to_xml_finish(cls, obj, node):
+        return
     
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
@@ -1580,29 +1686,98 @@ class Cloth(AnnoObject):
             return add_empty_to_scene()
         return imported_obj
 
+#Idea make animations direct children of models and allow exporting them.
+#Make sequences of main file into blender objects and thereby allow editing.
+#Link modelID directly to a model with a pointer property to avoid ordering problems.
+#For this, the models need to be already loaded and somehow be stored in an array to map indices to blender objects.
+#Make animations ordered somehow when represented as blender objects. Maybe name them accordingly. Or give them an index and sort.
+class TrackElement(AnnoObject):
+    has_transform = False
+    has_name = False
+    @classmethod
+    def node_to_property_node(self, node, obj, object_names_by_type):
+        node = super().node_to_property_node(node, obj, object_names_by_type)
+        model_id = int(get_text(node, "ModelID", "-1"))
+        if model_id in  object_names_by_type[Model.__name__]:
+            model_name = object_names_by_type[Model.__name__][model_id]
+            node.remove(node.find("ModelID"))
+            ET.SubElement(node, "BlenderModelID").text = model_name
+        particle_id = int(get_text(node, "ParticleID", "-1"))
+        if particle_id in  object_names_by_type[Particle.__name__]:
+            particle_name = object_names_by_type[Particle.__name__][particle_id]
+            node.remove(node.find("ParticleID"))
+            ET.SubElement(node, "BlenderParticleID").text = particle_name
+        return node
+
+class Track(AnnoObject):
+    has_transform = False
+    has_name = False
+    child_anno_object_types_without_container = {
+        "TrackElement" : TrackElement,
+    }
+    @classmethod
+    def blender_name_from_node(cls, node):
+        track_id = int(get_text(node, "TrackID", ""))
+        name = "TRACK_"+ str(track_id)
+        return name
+    
+class AnimationSequence(AnnoObject):
+    has_transform = False
+    has_name = False
+    child_anno_object_types_without_container = {
+        "Track" : Track,
+    }
+    @classmethod
+    def blender_name_from_node(cls, node):
+        config_type = "SEQUENCE"
+        seq_id = int(get_text(node, "SequenceID", "-1"))
+        name = config_type + "_"+ feedback_enums.NAME_BY_SEQUENCE_ID.get(seq_id, str(seq_id))
+        return name
+
+
+class AnimationSequences(AnnoObject):
+    has_transform = False
+    has_name = False
+    child_anno_object_types_without_container = {
+        "Config" : AnimationSequence,
+    }
+    @classmethod
+    def blender_name_from_node(cls, node):
+        return "ANIMATION_SEQUENCES"
+
 
 class AnimationsNode(AnnoObject):
+    has_name = False
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         anim_obj = add_empty_to_scene()
-        model_file_name = get_text_and_delete(node, "FileName")
-        for anim_node in list(node):
-            ET.SubElement(anim_node, "ModelFileName").text = model_file_name
-            Animation.xml_to_blender(anim_node, anim_obj)
-        anim_obj.scale.x = -1
         return anim_obj
+    
+
 class Animation(AnnoObject):
+    has_name = False
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
+        controller_obj = add_empty_to_scene("ARROWS")
+        if IO_AnnocfgPreferences.mirror_models():
+            controller_obj.scale.x = -1
+        
         model_data_path = get_text_and_delete(node, "ModelFileName")
         anim_data_path = get_text(node, "FileName")
         imported_obj = import_animated_model_to_scene(model_data_path, anim_data_path)
         
-        if imported_obj is None:
-            return add_empty_to_scene()
-        
-        return imported_obj
-
+        if imported_obj is not None:
+            imported_obj.parent = controller_obj
+        return controller_obj
+    
+    @classmethod
+    def blender_name_from_node(cls, node):
+        config_type = "ANIMATION"
+        file_name = Path(get_text(node, "FileName", "")).stem
+        index = get_text(node, "AnimationIndex", "")
+        name = config_type + "_"+ index + "_" + file_name
+        return name
+    
 class Model(AnnoObject):
     has_transform = True
     transform_paths = {
@@ -1628,14 +1803,31 @@ class Model(AnnoObject):
         imported_obj = import_model_to_scene(data_path)
         if imported_obj is None:
             return add_empty_to_scene()
-        
-        # Let's not always load the animations, might get a bit confusing...
-        # if node.find("Animations") is not None:
-        #     ET.SubElement(node.find("Animations"), "FileName").text = data_path
-        #     AnimationsNode.xml_to_blender(node.find("Animations"), imported_obj)
-        
         return imported_obj
     
+    @classmethod
+    def add_children_from_obj(cls, obj, node, child_map):
+        super().add_children_from_obj(obj, node, child_map)
+        if node.find("Animations") is not None:
+            return
+        #Animations may have been loaded.
+        for child_obj in child_map.get(obj.name, []):
+            subcls = get_anno_object_class(child_obj)
+            if subcls != AnimationsNode:
+                continue
+            animations_container = child_obj
+            animations_node = find_or_create(node, "Animations")
+            anim_nodes = []
+            for anim_obj in child_map.get(animations_container.name, []):
+                subcls = get_anno_object_class(anim_obj)
+                if subcls != Animation:
+                    continue
+                anim_node = Animation.blender_to_xml(anim_obj, None, child_map)
+                anim_nodes.append(anim_node)
+            anim_nodes.sort(key = lambda anim_node: int(get_text(anim_node, "AnimationIndex")))
+            for anim_node in anim_nodes:
+                anim_node.remove(anim_node.find("AnimationIndex"))
+                animations_node.append(anim_node)
 
 class SubFile(AnnoObject):
     has_transform = True
@@ -1830,8 +2022,8 @@ class Light(AnnoObject):
         "scale.z":"Scale",
     }
     @classmethod
-    def node_to_property_node(self, node, obj):
-        node = super().node_to_property_node(node, obj)
+    def node_to_property_node(self, node, obj, object_names_by_type):
+        node = super().node_to_property_node(node, obj, object_names_by_type)
         diffuse_r = float(get_text_and_delete(node, "Diffuse.r", "1.0"))
         diffuse_g = float(get_text_and_delete(node, "Diffuse.g", "1.0"))
         diffuse_b = float(get_text_and_delete(node, "Diffuse.b", "1.0"))
@@ -1885,7 +2077,7 @@ class ArbitraryXMLAnnoObject(AnnoObject):
 class IfoFile(AnnoObject):
     has_name = False
     @classmethod
-    def add_children_from_xml(cls, node, obj):
+    def add_children_from_xml(cls, node, obj, object_names_by_type = defaultdict(dict)):
         ifo_object_by_name = {
             "Sequence":Sequence,
             "BoundingBox":IfoCube,
@@ -1898,6 +2090,7 @@ class IfoFile(AnnoObject):
             "UnevenBlocker":IfoPlane,
             "QuayArea":IfoPlane,
             "InvisibleQuayArea":IfoPlane,
+            "MeshHeightmap":IfoMeshHeightmap,
         }
         for child_node in list(node):
             ifo_cls = ifo_object_by_name.get(child_node.tag, None)
@@ -1991,6 +2184,50 @@ class IfoPlane(AnnoObject):
             ET.SubElement(position_node, "zf").text = format_float(y)
         return node
 
+class IfoMeshHeightmap(AnnoObject):
+    has_transform = True
+    @classmethod
+    def add_blender_object_to_scene(cls, node) -> BlenderObject:
+        maxheight = float(get_text(node, "MaxHeight"))
+        startx = float(get_text(node, "StartPos/x"))
+        starty = float(get_text(node, "StartPos/y"))
+        stepx = float(get_text(node, "StepSize/x"))
+        stepy = float(get_text(node, "StepSize/y"))
+        width = int(get_text(node, "Heightmap/Width"))
+        height = int(get_text(node, "Heightmap/Height"))
+        heightdata = [float(s.text) for s in node.findall("Heightmap/Map/i")]
+        node.find("Heightmap").remove(node.find("Heightmap/Map"))
+        print(f"Heightmap w={width} x h={height} => {len(heightdata)}")
+        
+        mesh = bpy.data.meshes.new("MeshHeightmap")  # add the new mesh
+        obj = bpy.data.objects.new(mesh.name, mesh)
+        col = bpy.data.collections.get("Collection")
+        col.objects.link(obj)
+        bpy.context.view_layer.objects.active = obj
+        verts = []
+        i = 0
+        for a in range(height):
+            for b in range(width):
+                verts.append((startx + b * stepx, starty + a * stepy, heightdata[i]))
+                i += 1
+        edges = []
+        faces = []
+
+        mesh.from_pydata(verts, edges, faces)
+        for i, vert in enumerate(obj.data.vertices):
+            vert.co.y *= -1
+            
+        return obj
+
+    @classmethod 
+    def blender_to_xml(cls, obj, parent_node, child_map):
+        node = super().blender_to_xml(obj, parent_node, child_map)
+        map_node = ET.SubElement(node.find("Heightmap"), "Map")
+        for vert in obj.data.vertices:
+            z = vert.co.z
+            ET.SubElement(map_node, "i").text = format_float(z)
+        return node
+
 class Sequence(AnnoObject):
     has_transform = False
     has_name = False
@@ -2044,7 +2281,7 @@ class DummyGroup(AnnoObject):
         return node
     
     @classmethod
-    def add_children_from_xml(cls, node, obj):
+    def add_children_from_xml(cls, node, obj, object_names_by_type = defaultdict(dict)):
         for child_node in list(node):
             if len(list(child_node)) == 0:
                 continue
@@ -2086,7 +2323,7 @@ class FeedbackConfig(AnnoObject):
         return node
     
     @classmethod
-    def node_to_property_node(cls, node, obj):
+    def node_to_property_node(cls, node, obj, object_names_by_type):
         for prop in FeedbackConfigItem.__annotations__.keys():
             if get_text(node, prop, "") == "":
                 continue
@@ -2257,7 +2494,7 @@ class Cf7File(AnnoObject):
         "DummyRoot/Groups" : Cf7DummyGroup,
     }   
     @classmethod
-    def add_children_from_xml(cls, node, obj):
+    def add_children_from_xml(cls, node, obj, object_names_by_type = defaultdict(dict)):
         if not node.find("DummyRoot/Groups"):
             return
         for group_node in list(node.find("DummyRoot/Groups")):
@@ -2337,8 +2574,8 @@ class Spline(AnnoObject):
         return obj   
     
     @classmethod
-    def node_to_property_node(self, node, obj):
-        node = super().node_to_property_node(node, obj)
+    def node_to_property_node(self, node, obj, object_names_by_type):
+        node = super().node_to_property_node(node, obj, object_names_by_type)
         get_text_and_delete(node, "ControlPoints")
         return node
     
@@ -2360,6 +2597,9 @@ class Spline(AnnoObject):
         return node
  
 
+class NamedMockObject:
+    def __init__(self, name):
+        self.name = name
 
 class MainFile(AnnoObject):
     has_name = False
@@ -2373,10 +2613,43 @@ class MainFile(AnnoObject):
         "Lights" : Light,
         "Decals" : Decal,
     }   
+    child_anno_object_types_without_container = {
+        "Sequences" : AnimationSequences,
+    }
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         file_obj = add_empty_to_scene()  
         return file_obj
+    
+    @classmethod
+    def blender_to_xml_finish(cls, obj, node):
+        model_index_by_name = {}
+        for i, model_node in enumerate(node.findall("Models/Config")):
+            model_index_by_name[get_text(model_node, "Name")] = i
+        for track_element_node in node.findall("Sequences/Config/Track/TrackElement/BlenderModelID/.."):
+            blender_model_id_node = track_element_node.find("BlenderModelID")
+            blender_model_id = blender_model_id_node.text
+            model_name = Model.anno_name_from_blender_object(NamedMockObject(blender_model_id))
+            if model_name not in model_index_by_name:
+                print(f"Error: Could not resolve BlenderModelID {blender_model_id}: No model named {model_name}. Using model 0 instead.")
+            model_id = model_index_by_name.get(model_name, 0)
+            track_element_node.remove(blender_model_id_node)
+            ET.SubElement(track_element_node, "ModelID").text = str(model_id)
+        #particles
+        particle_index_by_name = {}
+        for i, particle_node in enumerate(node.findall("Particles/Config")):
+            particle_index_by_name[get_text(particle_node, "Name")] = i
+        for track_element_node in node.findall("Sequences/Config/Track/TrackElement/BlenderParticleID/.."):
+            blender_particle_id_node = track_element_node.find("BlenderParticleID")
+            blender_particle_id = blender_particle_id_node.text
+            particle_name = Particle.anno_name_from_blender_object(NamedMockObject(blender_particle_id))
+            if particle_name not in particle_index_by_name:
+                print(f"Error: Could not resolve BlenderParticleID {blender_particle_id}: No particle named {particle_name}. Using particle 0 instead.")
+            particle_id = particle_index_by_name.get(particle_name, 0)
+            track_element_node.remove(blender_particle_id_node)
+            ET.SubElement(track_element_node, "ParticleID").text = str(particle_id)
+            
+            
 
 class PropGridInstance:
     @classmethod
@@ -2771,7 +3044,7 @@ anno_object_classes = [
     NoAnnoObject, MainFile, Model, Cf7File,
     SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup,
     Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig,SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, Material, IfoFile, Spline, IslandFile, PropGridInstance,
-    IslandGamedataFile, GameObject, AnimationsNode, Animation
+    IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequences, AnimationSequence, Track, TrackElement, IfoMeshHeightmap,
 ]
 
 
@@ -2792,12 +3065,14 @@ classes = [
     FilenamePropertyGroup,
     ColorPropertyGroup,
     FeedbackSequencePropertyGroup,
+    ObjectPointerPropertyGroup,
     
     PT_AnnoScenePropertyPanel,
     
     PT_AnnoMaterialObjectPropertyPanel,
     ConvertCf7DummyToDummy,
     LoadAnimations,
+    DuplicateDummy,
     
     XMLPropertyGroup,
     PT_AnnoObjectPropertyPanel,

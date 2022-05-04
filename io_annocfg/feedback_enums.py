@@ -1,6 +1,6 @@
 from collections import ChainMap
 
-SEQUENCE_ID_BY_NAME = {"none":-1, "idle01":1000, "idle02":1001, "idle03":1002, "idle04":1003, "idle05":1003, "death01":1005, "talk01":1010, "talk02":1011, "greet01":1020, \
+SEQUENCE_ID_BY_NAME = {"none":-1,"zero":0, "idle01":1000, "idle02":1001, "idle03":1002, "idle04":1003, "idle05":1003, "death01":1005, "talk01":1010, "talk02":1011, "greet01":1020, \
     "bow01":1021, "cheer01":1030, "cheer02":1031, "cheer03":1032, "lookat01":1040, "lookat02":1041, "protest01":1050, "protest02":1051, "laydown01":1060, \
     "laydown02":1061, "laydown03":1062, "fishing01":1070, "fishing02":1071, "fishing03":1072, "dance01":1080, "dance02":1081, "dance03":1082, "dance04":1083, "fight01":1090, \
     "fight02":1091, "walk01":2000, "walk02":2001, "walk03":2002, "walk04":2003, "walk05":2004, "walk06":2005, "walk07":2005, "drunkenwalk01":2010, "drunkenwalk02":2011, \
@@ -123,6 +123,7 @@ animation_sequences = [
     ("hitconcrete", "hitconcrete", ""), 
     ("misswater", "misswater", ""), 
     ("missland", "missland", ""), 
+    ("zero", "zero", ""), 
 ]
 inhabitants_colony_guids_by_name = {
     'AF_ResidentTier01-Child':117779,
