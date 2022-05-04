@@ -68,7 +68,7 @@ To use it:
 1. Select your MAIN_FILE object. 
 2. Then press `Shift-A`->Mesh->Add Anno Feedback Object. Select the type SimpleAnnoFeedbackObject. 
 3. Select that new object and add a DummyGroup. Give it a Name (in the property panel!)
-4. Under the DummyGroup, add Dummy Objects. (give it a name!) Note that if you duplicate a dummy/dummy group, the name in the property window will also be duplicated. You must change it to be unique!
+4. Under the DummyGroup, add Dummy Objects. (give it a name!) Note that if you duplicate a dummy/dummy group with Ctrl+D, the name in the property window will also be duplicated. You must change it to be unique! Or even better, use the "Duplicate Dummy" button. I'd also suggest that you name your dummies "dummy_group_name_1, dummy_group_name_2, ...".
 5. Add a FeedbackConfig to the SimpleAnnoFeedbackObject. In the properties panel, you can see a feedback category where you can edit the values, add GUID Variations and Sequence Elements. For a guid on what they do, have a look at the original simple anno feedback github page.
 6. Here's an example config that makes Santa walk between two dummies:
 ![Blender 08_01_2022 23_31_12](https://user-images.githubusercontent.com/94999291/148662128-756104d4-bf6d-4ce1-8b38-347f6136be44.png)
@@ -120,4 +120,4 @@ If you are unsure if the export worked properly, try importing your exported fil
 
 For materials, its important to not have any standard blender materials on your models, otherwise the export will fail. You'll need to use an imported material - only those have the specific custom properties and correctly named shader nodes. Speaking of shader nodes, please note that Cloth materials and Model materials are incompatible.
 
-There are quite a few weird reason for your model or parts of it becoming invisible in game. Most likely, it's related to something being wrong with the materials. Make sure that your material has the correct vertex format (same as your model rdm file)! Some models (those with animations) have a different vertex format than others. Animated models in general are quite tricky and not really supported by this tool - you'll have manually edit the files.
+There are quite a few weird reason for your model or parts of it becoming invisible in game. Most likely, it's related to something being wrong with the materials. Make sure that your material has the correct vertex format (same as your model rdm file)! Some models (those with animations) have a different vertex format than others. Animated models in general are quite tricky.
