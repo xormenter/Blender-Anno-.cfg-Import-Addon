@@ -571,6 +571,77 @@ class LoadAnimations(Operator):
                 ET.SubElement(anim_node, "AnimationIndex").text = str(i)
                 Animation.xml_to_blender(anim_node, animations_container)
             obj.dynamic_properties.remove("Animations")
+            
+            for anim_obj in animations_container.children:
+                for armature in anim_obj.children:
+                    for anim_mesh in armature.children:
+                        for m_idx, material in enumerate(obj.data.materials):
+                            anim_mesh.data.materials[m_idx] = material
+        return {'FINISHED'}
+    
+class ShowSequence(Operator):
+    """Makes all animations belonging to this sequence visible and all others invisible. Also changes the display mode of the main models into Wireframe."""
+    bl_idname = "object.show_sequence"
+    bl_label = "Show Sequence"
+
+    
+    def set_hide_viewport_recursive(self, obj, hide):
+        obj.hide_viewport = hide
+        for o in obj.children:
+            self.set_hide_viewport_recursive(o, hide)
+
+    def show_animation(self, model_obj, animation_id):
+        for animations_obj in model_obj.children:
+            for i, anim_obj in enumerate(animations_obj.children):
+                anim_node = anim_obj.dynamic_properties.to_node(ET.Element("Config"))
+                anim_idx = get_text(anim_node, "AnimationIndex")
+                if animation_id == anim_idx:
+                    self.set_hide_viewport_recursive(anim_obj, False)
+                else:
+                    self.set_hide_viewport_recursive(anim_obj, True)
+    def execute(self, context):
+        seq_obj = context.active_object
+        
+        for track_obj in seq_obj.children:
+            for track_element_obj in track_obj.children:
+                track_element_node = track_element_obj.dynamic_properties.to_node(ET.Element("Track"))
+                model_name = get_text(track_element_node, "BlenderModelID", "")
+                animation_id = get_text(track_element_node, "AnimationID", "")
+                if animation_id != "" and model_name != "" and model_name in bpy.data.objects:
+                    model_obj = bpy.data.objects[model_name]
+                    self.show_animation(model_obj, animation_id)
+                    model_obj.display_type = "WIRE"
+        return {'FINISHED'}
+    
+class ShowModel(Operator):
+    """Makes all animations belonging to this sequence invisible and instead displays the normal mesh only."""
+    bl_idname = "object.show_model"
+    bl_label = "Show Model"
+
+    
+    def set_hide_viewport_recursive(self, obj, hide):
+        obj.hide_viewport = hide
+        for o in obj.children:
+            self.set_hide_viewport_recursive(o, hide)
+
+    def hide_animation(self, model_obj, animation_id):
+        for animations_obj in model_obj.children:
+            for i, anim_obj in enumerate(animations_obj.children):
+                anim_node = anim_obj.dynamic_properties.to_node(ET.Element("Config"))
+                anim_idx = get_text(anim_node, "AnimationIndex")
+                self.set_hide_viewport_recursive(anim_obj, True)
+    def execute(self, context):
+        seq_obj = context.active_object
+        
+        for track_obj in seq_obj.children:
+            for track_element_obj in track_obj.children:
+                track_element_node = track_element_obj.dynamic_properties.to_node(ET.Element("Track"))
+                model_name = get_text(track_element_node, "BlenderModelID", "")
+                animation_id = get_text(track_element_node, "AnimationID", "")
+                if animation_id != "" and model_name != "" and model_name in bpy.data.objects:
+                    model_obj = bpy.data.objects[model_name]
+                    self.hide_animation(model_obj, animation_id)
+                    model_obj.display_type = "TEXTURED"
         return {'FINISHED'}
 
 class PT_AnnoObjectPropertyPanel(Panel):
@@ -600,6 +671,10 @@ class PT_AnnoObjectPropertyPanel(Panel):
             col.operator(ConvertCf7DummyToDummy.bl_idname, text = "Convert to SimpleAnnoFeedback")
         if "Model" in obj.anno_object_class_str:
             col.operator(LoadAnimations.bl_idname, text = "Load Animations")
+        if "AnimationSequence" == obj.anno_object_class_str:
+            col.operator(ShowSequence.bl_idname, text = "Show Sequence")    
+            col.operator(ShowModel.bl_idname, text = "Show Model")    
+            
         if "Dummy" == obj.anno_object_class_str:
             col.operator(DuplicateDummy.bl_idname, text = "Duplicate Dummy (ID Increment)")
         col.prop(obj, "parent")
@@ -2231,7 +2306,21 @@ class IfoMeshHeightmap(AnnoObject):
 class Sequence(AnnoObject):
     has_transform = False
     has_name = False
-
+    
+    @classmethod
+    def node_to_property_node(self, node, obj, object_names_by_type):
+        node = super().node_to_property_node(node, obj, object_names_by_type)
+        seq_id = get_text_and_delete(node, "Id")
+        ET.SubElement(node, "SequenceID").text = seq_id
+        return node
+    
+    @classmethod
+    def property_node_to_node(self, property_node, obj):
+        node = super().property_node_to_node(property_node, obj)
+        seq_id = get_text_and_delete(node, "SequenceID")
+        ET.SubElement(node, "Id").text = seq_id
+        return node
+ 
 
 
 class Dummy(AnnoObject):
@@ -3073,6 +3162,8 @@ classes = [
     ConvertCf7DummyToDummy,
     LoadAnimations,
     DuplicateDummy,
+    ShowSequence,
+    ShowModel,
     
     XMLPropertyGroup,
     PT_AnnoObjectPropertyPanel,
