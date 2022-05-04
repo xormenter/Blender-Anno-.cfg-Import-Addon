@@ -599,9 +599,7 @@ class ShowSequence(Operator):
                     self.set_hide_viewport_recursive(anim_obj, False)
                 else:
                     self.set_hide_viewport_recursive(anim_obj, True)
-    def execute(self, context):
-        seq_obj = context.active_object
-        
+    def show_sequence(self, seq_obj):
         for track_obj in seq_obj.children:
             for track_element_obj in track_obj.children:
                 track_element_node = track_element_obj.dynamic_properties.to_node(ET.Element("Track"))
@@ -611,6 +609,43 @@ class ShowSequence(Operator):
                     model_obj = bpy.data.objects[model_name]
                     self.show_animation(model_obj, animation_id)
                     model_obj.display_type = "WIRE"
+    def get_main_file_obj(self, obj):
+        main_file_obj = obj
+        while get_anno_object_class(main_file_obj) != MainFile:
+            if main_file_obj.parent is not None:
+                main_file_obj = main_file_obj.parent
+        if get_anno_object_class(main_file_obj) == MainFile:
+            return main_file_obj
+        return None
+    
+    def show_sequences_in_subfiles(self, main_file_obj, selected_sequence_id):
+        if main_file_obj is not None:
+            for anim_sequences in main_file_obj.children:
+                if not get_anno_object_class(anim_sequences) == AnimationSequences:
+                    continue
+                for subfile_seq in anim_sequences.children:
+                    if not get_anno_object_class(subfile_seq) == AnimationSequence:
+                        continue
+                    seq_node = subfile_seq.dynamic_properties.to_node(ET.Element("Config"))
+                    sequence_id = get_text(seq_node, "SequenceID")
+                    if selected_sequence_id == sequence_id:
+                        self.show_sequence(subfile_seq)
+            for file_obj in main_file_obj.children:
+                if not get_anno_object_class(file_obj) == SubFile:
+                    continue
+                for subfile_main_file_obj in file_obj.children:
+                    if not get_anno_object_class(subfile_main_file_obj) == MainFile:
+                        continue
+                    self.show_sequences_in_subfiles(subfile_main_file_obj, selected_sequence_id)
+                    
+    def execute(self, context):
+        seq_obj = context.active_object
+        seq_node = seq_obj.dynamic_properties.to_node(ET.Element("Config"))
+        selected_sequence_id = get_text(seq_node, "SequenceID")
+        
+        #self.show_sequence(seq_obj)
+        main_file_obj = self.get_main_file_obj(seq_obj)
+        self.show_sequences_in_subfiles(main_file_obj, selected_sequence_id)
         return {'FINISHED'}
     
 class ShowModel(Operator):
@@ -624,15 +659,11 @@ class ShowModel(Operator):
         for o in obj.children:
             self.set_hide_viewport_recursive(o, hide)
 
-    def hide_animation(self, model_obj, animation_id):
+    def hide_animation(self, model_obj):
         for animations_obj in model_obj.children:
             for i, anim_obj in enumerate(animations_obj.children):
-                anim_node = anim_obj.dynamic_properties.to_node(ET.Element("Config"))
-                anim_idx = get_text(anim_node, "AnimationIndex")
                 self.set_hide_viewport_recursive(anim_obj, True)
-    def execute(self, context):
-        seq_obj = context.active_object
-        
+    def hide_sequence(self, seq_obj):
         for track_obj in seq_obj.children:
             for track_element_obj in track_obj.children:
                 track_element_node = track_element_obj.dynamic_properties.to_node(ET.Element("Track"))
@@ -640,8 +671,44 @@ class ShowModel(Operator):
                 animation_id = get_text(track_element_node, "AnimationID", "")
                 if animation_id != "" and model_name != "" and model_name in bpy.data.objects:
                     model_obj = bpy.data.objects[model_name]
-                    self.hide_animation(model_obj, animation_id)
+                    self.hide_animation(model_obj)
                     model_obj.display_type = "TEXTURED"
+                    
+    def get_main_file_obj(self, obj):
+        main_file_obj = obj
+        while get_anno_object_class(main_file_obj) != MainFile:
+            if main_file_obj.parent is not None:
+                main_file_obj = main_file_obj.parent
+        if get_anno_object_class(main_file_obj) == MainFile:
+            return main_file_obj
+        return None
+    
+    def hide_sequences_in_subfiles(self, main_file_obj, selected_sequence_id):
+        if main_file_obj is not None:
+            for anim_sequences in main_file_obj.children:
+                if not get_anno_object_class(anim_sequences) == AnimationSequences:
+                    continue
+                for subfile_seq in anim_sequences.children:
+                    if not get_anno_object_class(subfile_seq) == AnimationSequence:
+                        continue
+                    seq_node = subfile_seq.dynamic_properties.to_node(ET.Element("Config"))
+                    sequence_id = get_text(seq_node, "SequenceID")
+                    if selected_sequence_id == sequence_id:
+                        self.hide_sequence(subfile_seq)
+            for file_obj in main_file_obj.children:
+                if not get_anno_object_class(file_obj) == SubFile:
+                    continue
+                for subfile_main_file_obj in file_obj.children:
+                    if not get_anno_object_class(subfile_main_file_obj) == MainFile:
+                        continue
+                    self.hide_sequences_in_subfiles(subfile_main_file_obj, selected_sequence_id)
+    def execute(self, context):
+        seq_obj = context.active_object
+        seq_node = seq_obj.dynamic_properties.to_node(ET.Element("Config"))
+        selected_sequence_id = get_text(seq_node, "SequenceID")
+        
+        main_file_obj = self.get_main_file_obj(seq_obj)
+        self.hide_sequences_in_subfiles(main_file_obj, selected_sequence_id)
         return {'FINISHED'}
 
 class PT_AnnoObjectPropertyPanel(Panel):
