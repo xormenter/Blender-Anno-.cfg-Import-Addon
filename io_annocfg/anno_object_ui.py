@@ -446,6 +446,53 @@ def get_main_file_obj(obj):
         return main_file_obj
     return None   
     
+class DuplicateAnnoObject(Operator):
+    """Duplicates the hierarchy below and including the selected object. Also duplicates invisible objects and most importantly, cleans up object references in the sequences. Recommended to use this over Ctrl+D for complex object hierarchies."""
+    bl_idname = "object.duplicate_anno_object"
+    bl_label = "Duplicate Anno Object"
+
+    def duplicate_recursively(self, obj):
+        dup = obj.copy()
+        bpy.context.scene.collection.objects.link(dup)
+        self.original_to_duplicate[obj.name] = dup.name
+        for child in obj.children:
+            child_dup = self.duplicate_recursively(child)
+            child_dup.parent = dup
+        return dup
+    
+    def fix_track_object_references(self, track_obj):
+        node = track_obj.dynamic_properties.to_node(ET.Element("Track"))
+        for track_node in node.findall("TrackElement"):
+            if track_node.find("BlenderModelID") is not None:
+                org_name = get_text(track_node, "BlenderModelID")
+                
+                print(self.original_to_duplicate)
+                dup_name = self.original_to_duplicate[org_name]
+                track_node.find("BlenderModelID").text = dup_name
+            
+            if track_node.find("BlenderParticleID") is not None:
+                org_name = get_text(track_node, "BlenderParticleID")
+                dup_name = self.original_to_duplicate[org_name]
+                track_node.find("BlenderParticleID").text = dup_name
+        track_obj.dynamic_properties.reset()
+        track_obj.dynamic_properties.from_node(node)
+        
+    def find_and_fix_track_objects(self, obj):
+        if get_anno_object_class(obj) == Track:
+            self.fix_track_object_references(obj)
+        for child in obj.children:
+            self.find_and_fix_track_objects(child)
+    
+    def execute(self, context):
+        main_obj = context.active_object
+        self.original_to_duplicate = {}
+        dup = self.duplicate_recursively(main_obj)
+        self.find_and_fix_track_objects(dup)
+        main_obj.select_set(False)
+        dup.select_set(True)
+        return {'FINISHED'}
+ 
+    
 class ShowSequence(Operator):
     """Makes all animations belonging to this sequence visible and all others invisible. Also changes the display mode of the main models into Wireframe."""
     bl_idname = "object.show_sequence"
@@ -597,6 +644,8 @@ class PT_AnnoObjectPropertyPanel(Panel):
             
         if "Dummy" == obj.anno_object_class_str:
             col.operator(DuplicateDummy.bl_idname, text = "Duplicate Dummy (ID Increment)")
+        else:
+            col.operator(DuplicateAnnoObject.bl_idname, text = "Duplicate Anno Object")
         col.prop(obj, "parent")
         dyn = obj.dynamic_properties
         dyn.draw(col)
@@ -673,6 +722,7 @@ classes = [
     ConvertCf7DummyToDummy,
     LoadAnimations,
     LoadAllAnimations,
+    DuplicateAnnoObject,
     DuplicateDummy,
     ShowSequence,
     ShowModel,
