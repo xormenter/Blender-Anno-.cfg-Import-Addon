@@ -167,6 +167,8 @@ class AnnoObject(ABC):
                     child_obj["import_index"] = i
                 node.remove(subnodes)
         for subnode_name, subcls in cls.child_anno_object_types_without_container.items():
+            if subcls == AnimationSequences and not IO_AnnocfgPreferences.turn_sequences_into_blender_objects():
+                continue
             subnodes = node.findall(subnode_name)
             for i, subnode in enumerate(list(subnodes)):
                 child_obj = subcls.xml_to_blender(subnode, obj)
