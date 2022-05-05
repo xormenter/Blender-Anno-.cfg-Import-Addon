@@ -151,41 +151,31 @@ class AnnoObject(ABC):
         return cls.xml_to_blender(node)
     
     @classmethod
-    def node_to_property_node(self, node, obj, object_names_by_type):
+    def node_to_property_node(self, node, obj):
         return node
     @classmethod
     def property_node_to_node(self, property_node, obj):
         return property_node
     
     @classmethod
-    def add_children_from_xml(cls, node, obj, object_names_by_type = defaultdict(dict)):
-        # object_names_by_type: f.e. {"Model":[0:"MODEL_mainbody", 1:"MODEL_bucket"], ...}
-        # Required to resolve modelID to a pointer towards that model (TrackElements).
-        classes_that_need_index_information = [AnimationSequences, AnimationSequence, Track, TrackElement]
+    def add_children_from_xml(cls, node, obj):
         for subnode_name, subcls in cls.child_anno_object_types.items():
             subnodes = node.find(subnode_name)
             if subnodes is not None:
                 for i, subnode in enumerate(list(subnodes)):
-                    child_obj = None
-                    if subcls in classes_that_need_index_information:
-                        child_obj = subcls.xml_to_blender(subnode, obj, object_names_by_type)
-                    else:
-                        child_obj = subcls.xml_to_blender(subnode, obj)
-                    object_names_by_type[subcls.__name__][i] = child_obj.name
+                    child_obj = subcls.xml_to_blender(subnode, obj)
+                    child_obj["import_index"] = i
                 node.remove(subnodes)
         for subnode_name, subcls in cls.child_anno_object_types_without_container.items():
             subnodes = node.findall(subnode_name)
             for i, subnode in enumerate(list(subnodes)):
-                child_obj = None
-                if subcls in classes_that_need_index_information:
-                    child_obj = subcls.xml_to_blender(subnode, obj, object_names_by_type)
-                else:
-                    child_obj = subcls.xml_to_blender(subnode, obj)
-                object_names_by_type[subcls.__name__][i] = child_obj.name
+                child_obj = subcls.xml_to_blender(subnode, obj)
+                child_obj["import_index"] = i
                 node.remove(subnode)
         
     @classmethod
-    def xml_to_blender(cls: Type[T], node: ET.Element, parent_object = None, object_names_by_type = defaultdict(dict)) -> BlenderObject:
+    def xml_to_blender(cls: Type[T], node: ET.Element, parent_object = None) -> BlenderObject:
+
         obj = cls.add_blender_object_to_scene(node)
         set_anno_object_class(obj, cls)
         obj.name = cls.blender_name_from_node(node)
@@ -212,8 +202,8 @@ class AnnoObject(ABC):
                 node.remove(materials_node)
             cls.apply_materials_to_object(obj, materials)
         
-        cls.add_children_from_xml(node, obj, object_names_by_type)
-        node = cls.node_to_property_node(node, obj, object_names_by_type)
+        cls.add_children_from_xml(node, obj)
+        node = cls.node_to_property_node(node, obj)
         obj.dynamic_properties.from_node(node)
         return obj
     
@@ -385,40 +375,64 @@ class Cloth(AnnoObject):
             return add_empty_to_scene()
         return imported_obj
 
-#Idea make animations direct children of models and allow exporting them.
-#Make sequences of main file into blender objects and thereby allow editing.
-#Link modelID directly to a model with a pointer property to avoid ordering problems.
-#For this, the models need to be already loaded and somehow be stored in an array to map indices to blender objects.
-#Make animations ordered somehow when represented as blender objects. Maybe name them accordingly. Or give them an index and sort.
+# Not really worth it to have this as its own object, I think. But maybe I'm wrong, so I'll leave it here.
 class TrackElement(AnnoObject):
     has_transform = False
     has_name = False
     @classmethod
-    def node_to_property_node(self, node, obj, object_names_by_type):
-        node = super().node_to_property_node(node, obj, object_names_by_type)
+    def node_to_property_node(self, node, obj):
+        node = super().node_to_property_node(node, obj)
         model_id = int(get_text(node, "ModelID", "-1"))
-        if model_id in  object_names_by_type[Model.__name__]:
-            model_name = object_names_by_type[Model.__name__][model_id]
-            node.remove(node.find("ModelID"))
-            ET.SubElement(node, "BlenderModelID").text = model_name
+        main_file = obj.parent.parent.parent.parent
+        for o in main_file.children:
+            if get_anno_object_class(o) != Model:
+                continue
+            if o["import_index"] == model_id:
+                model_name = o.name
+                node.remove(node.find("ModelID"))
+                ET.SubElement(node, "BlenderModelID").text = model_name
         particle_id = int(get_text(node, "ParticleID", "-1"))
-        if particle_id in  object_names_by_type[Particle.__name__]:
-            particle_name = object_names_by_type[Particle.__name__][particle_id]
-            node.remove(node.find("ParticleID"))
-            ET.SubElement(node, "BlenderParticleID").text = particle_name
+        for o in main_file.children:
+            if get_anno_object_class(o) != Particle:
+                continue
+            if o["import_index"] == particle_id:
+                particle_name = o.name
+                node.remove(node.find("ParticleID"))
+                ET.SubElement(node, "BlenderParticleID").text = particle_name
         return node
 
 class Track(AnnoObject):
     has_transform = False
     has_name = False
-    child_anno_object_types_without_container = {
-        "TrackElement" : TrackElement,
-    }
+    # child_anno_object_types_without_container = {
+    #     "TrackElement" : TrackElement,
+    # }
     @classmethod
     def blender_name_from_node(cls, node):
         track_id = int(get_text(node, "TrackID", ""))
         name = "TRACK_"+ str(track_id)
         return name
+    @classmethod
+    def node_to_property_node(self, node, obj):
+        for track_node in node.findall("TrackElement"):
+            model_id = int(get_text(track_node, "ModelID", "-1"))
+            main_file = obj.parent.parent.parent
+            for o in main_file.children:
+                if get_anno_object_class(o) != Model:
+                    continue
+                if o["import_index"] == model_id:
+                    model_name = o.name
+                    track_node.remove(track_node.find("ModelID"))
+                    ET.SubElement(track_node, "BlenderModelID").text = model_name
+            particle_id = int(get_text(track_node, "ParticleID", "-1"))
+            for o in main_file.children:
+                if get_anno_object_class(o) != Particle:
+                    continue
+                if o["import_index"] == particle_id:
+                    particle_name = o.name
+                    track_node.remove(node.find("ParticleID"))
+                    ET.SubElement(track_node, "BlenderParticleID").text = particle_name
+        return node
     
 class AnimationSequence(AnnoObject):
     has_transform = False
@@ -721,8 +735,8 @@ class Light(AnnoObject):
         "scale.z":"Scale",
     }
     @classmethod
-    def node_to_property_node(self, node, obj, object_names_by_type):
-        node = super().node_to_property_node(node, obj, object_names_by_type)
+    def node_to_property_node(self, node, obj):
+        node = super().node_to_property_node(node, obj)
         diffuse_r = float(get_text_and_delete(node, "Diffuse.r", "1.0"))
         diffuse_g = float(get_text_and_delete(node, "Diffuse.g", "1.0"))
         diffuse_b = float(get_text_and_delete(node, "Diffuse.b", "1.0"))
@@ -776,7 +790,7 @@ class ArbitraryXMLAnnoObject(AnnoObject):
 class IfoFile(AnnoObject):
     has_name = False
     @classmethod
-    def add_children_from_xml(cls, node, obj, object_names_by_type = defaultdict(dict)):
+    def add_children_from_xml(cls, node, obj):
         ifo_object_by_name = {
             "Sequence":Sequence,
             "BoundingBox":IfoCube,
@@ -930,8 +944,8 @@ class Sequence(AnnoObject):
     has_name = False
     
     @classmethod
-    def node_to_property_node(self, node, obj, object_names_by_type):
-        node = super().node_to_property_node(node, obj, object_names_by_type)
+    def node_to_property_node(self, node, obj):
+        node = super().node_to_property_node(node, obj)
         seq_id = get_text_and_delete(node, "Id")
         ET.SubElement(node, "SequenceID").text = seq_id
         return node
@@ -992,7 +1006,7 @@ class DummyGroup(AnnoObject):
         return node
     
     @classmethod
-    def add_children_from_xml(cls, node, obj, object_names_by_type = defaultdict(dict)):
+    def add_children_from_xml(cls, node, obj):
         for child_node in list(node):
             if len(list(child_node)) == 0:
                 continue
@@ -1034,7 +1048,7 @@ class FeedbackConfig(AnnoObject):
         return node
     
     @classmethod
-    def node_to_property_node(cls, node, obj, object_names_by_type):
+    def node_to_property_node(cls, node, obj):
         for prop in FeedbackConfigItem.__annotations__.keys():
             if get_text(node, prop, "") == "":
                 continue
@@ -1205,7 +1219,7 @@ class Cf7File(AnnoObject):
         "DummyRoot/Groups" : Cf7DummyGroup,
     }   
     @classmethod
-    def add_children_from_xml(cls, node, obj, object_names_by_type = defaultdict(dict)):
+    def add_children_from_xml(cls, node, obj):
         if not node.find("DummyRoot/Groups"):
             return
         for group_node in list(node.find("DummyRoot/Groups")):
@@ -1285,8 +1299,8 @@ class Spline(AnnoObject):
         return obj   
     
     @classmethod
-    def node_to_property_node(self, node, obj, object_names_by_type):
-        node = super().node_to_property_node(node, obj, object_names_by_type)
+    def node_to_property_node(self, node, obj):
+        node = super().node_to_property_node(node, obj)
         get_text_and_delete(node, "ControlPoints")
         return node
     

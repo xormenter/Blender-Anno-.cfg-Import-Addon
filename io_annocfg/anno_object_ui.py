@@ -468,8 +468,8 @@ class ShowSequence(Operator):
                     self.set_hide_viewport_recursive(anim_obj, True)
     def show_sequence(self, seq_obj):
         for track_obj in seq_obj.children:
-            for track_element_obj in track_obj.children:
-                track_element_node = track_element_obj.dynamic_properties.to_node(ET.Element("Track"))
+            track_node = track_obj.dynamic_properties.to_node(ET.Element("Track"))
+            for track_element_node in track_node.findall("TrackElement"):
                 model_name = get_text(track_element_node, "BlenderModelID", "")
                 animation_id = get_text(track_element_node, "AnimationID", "")
                 if animation_id != "" and model_name != "" and model_name in bpy.data.objects:
@@ -524,8 +524,8 @@ class ShowModel(Operator):
                 self.set_hide_viewport_recursive(anim_obj, True)
     def hide_sequence(self, seq_obj):
         for track_obj in seq_obj.children:
-            for track_element_obj in track_obj.children:
-                track_element_node = track_element_obj.dynamic_properties.to_node(ET.Element("Track"))
+            track_node = track_obj.dynamic_properties.to_node(ET.Element("Track"))
+            for track_element_node in track_node.findall("TrackElement"):
                 model_name = get_text(track_element_node, "BlenderModelID", "")
                 animation_id = get_text(track_element_node, "AnimationID", "")
                 if animation_id != "" and model_name != "" and model_name in bpy.data.objects:
