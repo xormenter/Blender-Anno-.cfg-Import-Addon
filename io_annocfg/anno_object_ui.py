@@ -454,6 +454,8 @@ class DuplicateAnnoObject(Operator):
     def duplicate_recursively(self, obj):
         dup = obj.copy()
         bpy.context.scene.collection.objects.link(dup)
+        
+        dup.hide_set(state=obj.hide_get())
         self.original_to_duplicate[obj.name] = dup.name
         for child in obj.children:
             child_dup = self.duplicate_recursively(child)
@@ -465,8 +467,6 @@ class DuplicateAnnoObject(Operator):
         for track_node in node.findall("TrackElement"):
             if track_node.find("BlenderModelID") is not None:
                 org_name = get_text(track_node, "BlenderModelID")
-                
-                print(self.original_to_duplicate)
                 dup_name = self.original_to_duplicate[org_name]
                 track_node.find("BlenderModelID").text = dup_name
             
@@ -476,18 +476,25 @@ class DuplicateAnnoObject(Operator):
                 track_node.find("BlenderParticleID").text = dup_name
         track_obj.dynamic_properties.reset()
         track_obj.dynamic_properties.from_node(node)
-        
-    def find_and_fix_track_objects(self, obj):
+    
+    def fix_armature(self, obj):
+        for mod in obj.modifiers:
+            if mod.type != "ARMATURE":
+                continue
+            mod.object = bpy.data.objects[self.original_to_duplicate[mod.object.name]]
+    
+    def fix_object_references(self, obj):
         if get_anno_object_class(obj) == Track:
             self.fix_track_object_references(obj)
+        self.fix_armature(obj)
         for child in obj.children:
-            self.find_and_fix_track_objects(child)
+            self.fix_object_references(child)
     
     def execute(self, context):
         main_obj = context.active_object
         self.original_to_duplicate = {}
         dup = self.duplicate_recursively(main_obj)
-        self.find_and_fix_track_objects(dup)
+        self.fix_object_references(dup)
         main_obj.select_set(False)
         dup.select_set(True)
         return {'FINISHED'}
