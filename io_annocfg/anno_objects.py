@@ -432,7 +432,7 @@ class Track(AnnoObject):
                     continue
                 if o["import_index"] == particle_id:
                     particle_name = o.name
-                    track_node.remove(node.find("ParticleID"))
+                    track_node.remove(track_node.find("ParticleID"))
                     ET.SubElement(track_node, "BlenderParticleID").text = particle_name
         return node
     
