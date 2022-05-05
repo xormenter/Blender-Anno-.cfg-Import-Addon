@@ -35,6 +35,7 @@ from . import operators
 from . import prefs
 from . import feedback_ui
 from . import anno_objects
+from . import anno_object_ui
 
 # =========================================================================
 # Registration:
@@ -46,6 +47,7 @@ def register():
     operators.register()
     prefs.register()
     anno_objects.register()
+    anno_object_ui.register()
     
     feedback_ui.register()
     
@@ -55,6 +57,7 @@ def unregister():
     operators.unregister()
     prefs.unregister()
     anno_objects.unregister()
+    anno_object_ui.unregister()
     
     feedback_ui.unregister()
 

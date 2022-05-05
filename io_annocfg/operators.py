@@ -20,7 +20,8 @@ from .simple_anno_feedback_encoding import SimpleAnnoFeedbackEncoding
 from .prefs import IO_AnnocfgPreferences
 from .anno_objects import get_anno_object_class, Transform, AnnoObject, MainFile, Model, SimpleAnnoFeedbackEncodingObject, \
     SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup, \
-    Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig, Light, IfoFile, Cf7File, IslandFile, PropGridInstance, IslandGamedataFile, AssetsXML
+    Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig, Light, IfoFile, Cf7File, IslandFile, PropGridInstance, IslandGamedataFile, AssetsXML,\
+    Animation
 
 
 from .utils import data_path_to_absolute_path, to_data_path
@@ -233,7 +234,7 @@ class ImportAnnoCfg(Operator, ImportHelper):
         default=False,
     )
     
-    files: CollectionProperty(
+    files: CollectionProperty( # type: ignore
         type=bpy.types.OperatorFileListElement,
         options={'HIDDEN', 'SKIP_SAVE'},
     )
@@ -646,13 +647,81 @@ class ExportAnnoModelOperator(Operator, ExportHelper):
             return {'RUNNING_MODAL'}
         return super().invoke(context, _event)
             
-
+# class ExportAnimatedAnnoModelOperator(Operator, ExportHelper):
+#     """Exports the selected ANIMATION."""
+#     bl_idname = "export.anno_animation_files" 
+#     bl_label = "Export Anno Animation (.rdm)"
+    
+#     filename_ext = ".rdm"
+#     filter_glob: StringProperty( #type: ignore
+#         default="*.rdm;",
+#         options={'HIDDEN'},
+#         maxlen=255,  # Max internal buffer length, longer would be clamped.
+#     )
+#     vertex_format: EnumProperty( #type: ignore
+#         default="P4h_N4b_G4b_B4b_T2h_I4b_W4b",
+#         items = [
+#             ("P4h_N4b_G4b_B4b_T2h_I4b_W4b", "P4h_N4b_G4b_B4b_T2h_I4b_W4b", "Check the material to see which vertex format to use."),
+#             ("P4h_N4b_G4b_B4b_T2h_I4b ", "P4h_N4b_G4b_B4b_T2h_I4b ", "Check the material to see which vertex format to use."),
+#         ],
+#         name = "Vertex Format"
+#     )
+#     def select_children(self, obj):
+#         for child in obj.children:
+#             child.select_set(True)
+#             self.select_children(child)
+            
+#     def execute(self, context):
+#         self.obj = context.active_object
+#         if not self.obj or not get_anno_object_class(self.obj) == Animation:
+#             self.report({'ERROR_INVALID_CONTEXT'}, f"ANIMATION_ Object needs to be selected.")
+#             return {'CANCELLED'}
+#         self.select_children(self.obj)
+#         self.obj.select_set(False)
+            
+        
+#         self.path = Path(self.filepath)
+#         self.export_rdm()
+#         try:
+#             data_path = to_data_path(self.path)
+#             self.obj.dynamic_properties.set("FileName", data_path.as_posix(), replace = True)
+#         except ValueError:
+#             self.report({'INFO'}, f'Warning, export not relative to rda folder, could not adapt FileName')
+#         try:
+#             data_path = to_data_path(self.path)
+#             self.obj.parent.parent.dynamic_properties.set("FileName", data_path.as_posix(), replace = True)
+#         except:
+#             pass
+#         self.report({'INFO'}, f'Exported {self.obj.name} to {self.filepath}')
+#         return {'FINISHED'}
+    
+#     def export_rdm(self):
+#         self.export_glb(self.path.with_suffix(".glb"))
+        
+#         rdm4_path = IO_AnnocfgPreferences.get_path_to_rdm4()
+#         if rdm4_path.exists() and self.path.with_suffix(".glb").exists():
+#             #Delete the old .rdm file first
+#             if self.path.exists():
+#                 self.path.unlink()
+#             print(f"Subprocess: \"{rdm4_path}\" --gltf={self.vertex_format} --input \"{self.path.with_suffix('.glb')}\" -n --outdst \"{self.path.parent}\" -sa")
+#             subprocess.call(f"\"{rdm4_path}\" --gltf={self.vertex_format} --input \"{self.path.with_suffix('.glb')}\" -n --outdst \"{self.path.parent}\" -sa --no_transform", shell = True)
+#     def export_glb(self, filepath = None):
+#         if filepath is None:
+#             filepath = self.filepath
+#         bpy.ops.export_scene.gltf(filepath=str(filepath), use_selection = True, check_existing=True, export_format='GLB', export_tangents=True, export_animations = True, export_force_sampling = True, optimize_animation_size = False)
+        
+#     @classmethod
+#     def poll(cls, context):
+#         if not context.active_object:
+#             return False
+#         return get_anno_object_class(context.active_object) == Animation
+    
 class OBJECT_OT_add_anno_object(Operator, AddObjectHelper):
     """Create a new Anno Feedback Object"""
     bl_idname = "mesh.add_anno_object"
     bl_label = "Add Anno Feedback Object"
     bl_options = {'REGISTER', 'UNDO'}
-    object_type: EnumProperty(
+    object_type: EnumProperty( # type: ignore
         name='Type',
         description='Object Type',
         items={
@@ -756,6 +825,7 @@ classes = (
     ImportAllPropsOperator,
     ImportAnnoIsland,
     ExportAnnoIsland,
+    # ExportAnimatedAnnoModelOperator,
 )
 
 def add_anno_object_button(self, context):
@@ -775,6 +845,9 @@ def menu_func_export_cfg(self, context):
 def menu_func_export_model(self, context):
     self.layout.operator(ExportAnnoModelOperator.bl_idname, text="Anno Model (.rdm/.glb)")
     
+# def menu_func_export_animation(self, context):
+#     self.layout.operator(ExportAnimatedAnnoModelOperator.bl_idname, text="Anno Animation (.rdm)")
+        
 def menu_func_import_model(self, context):
     self.layout.operator(ImportAnnoModelOperator.bl_idname, text="Anno Model (.rdm/.glb)")
 def menu_func_import_prop(self, context):
@@ -799,6 +872,7 @@ export_funcs = [
     menu_func_export_cfg,
     menu_func_export_model,
     menu_func_export_island,
+    # menu_func_export_animation,
 ]
 
 def register():
