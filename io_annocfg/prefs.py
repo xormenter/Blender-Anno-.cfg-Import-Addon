@@ -67,7 +67,11 @@ class IO_AnnocfgPreferences(AddonPreferences):
         description = "The anno engine mirrors object along the X axis. When enabled, the addon will also mirror meshes along the X axis s.t. text is displayed correctly. However, this means that all .glb files imported directly (using the .glb import instead of the .rmd import) will have the wrong orientation, to avoid this uncheck this box. Keep in mind that when you change this setting, all your exising .blend files will not export properly.",
         default = True
     )
-    
+    sequences_as_blender_objects : BoolProperty( # type: ignore
+        name = "Sequences as Blender Objects",
+        description = "Turns sequences into blender objects and resolves ModelID (and ParticleID) references to their respective blender object. Allows easier handling of animated files and prevents errors coming from a reordering of the models when exporting. ",
+        default = True
+    )
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "path_to_rda_folder")
@@ -77,6 +81,7 @@ class IO_AnnocfgPreferences(AddonPreferences):
         layout.prop(self, "texture_quality")
         layout.prop(self, "mirror_models_bool")
         layout.prop(self, "enable_splines")
+        layout.prop(self, "sequences_as_blender_objects")
 
     @classmethod
     def get_path_to_rda_folder(cls):
@@ -99,6 +104,9 @@ class IO_AnnocfgPreferences(AddonPreferences):
     @classmethod
     def mirror_models(cls):
         return bpy.context.preferences.addons[__package__].preferences.mirror_models_bool
+    @classmethod
+    def turn_sequences_into_blender_objects(cls):
+        return bpy.context.preferences.addons[__package__].preferences.sequences_as_blender_objects
 
 classes = (
     IO_AnnocfgPreferences,

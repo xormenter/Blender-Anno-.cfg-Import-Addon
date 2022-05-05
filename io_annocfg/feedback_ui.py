@@ -6,50 +6,53 @@ from . import feedback_enums
 
 class FeedbackConfigItem(PropertyGroup):
     """Group of properties representing a feedback config"""
-    Description: StringProperty(name = "Description", default = "", description = "Optional")
-    IgnoreRootObjectXZRotation: BoolProperty(
+    Description: StringProperty(name = "Description", default = "", description = "Optional")# type: ignore
+    IgnoreRootObjectXZRotation: BoolProperty(# type: ignore
            name="IgnoreRootObjectXZRotation", description="Feedback units won't rotate with the building - why would you want that?",
     )
-    IsAlwaysVisibleActor: BoolProperty(
+    IsAlwaysVisibleActor: BoolProperty(# type: ignore
            name="IsAlwaysVisibleActor", description="",
     )
-    ApplyScaleToMovementSpeed: BoolProperty(
+    ApplyScaleToMovementSpeed: BoolProperty(# type: ignore
            name="ApplyScaleToMovementSpeed", description="", default=True,
     )
-    ActorCount: IntProperty(
+    ActorCount: IntProperty(# type: ignore
            name="ActorCount", description="",
            default=1, min = 1, max = 256,
     )
-    MaxActorCount: IntProperty(
+    MaxActorCount: IntProperty(# type: ignore
            name="MaxActorCount", description="",
            default=1, min = 1, max = 256,
     )
-    CreateChance: IntProperty(
+    CreateChance: IntProperty(# type: ignore
            name="CreateChance", description="",
            default=100, min = 0, max = 100, subtype = "PERCENTAGE"
     )
-    BoneLink: StringProperty(name = "BoneLink", default = "NoLink", description = "")
-    RenderFlags: IntProperty(
+    BoneLink: StringProperty(name = "BoneLink", default = "NoLink", description = "")# type: ignore
+    RenderFlags: IntProperty(# type: ignore
            name="RenderFlags", description="",
            default=0, min = 0,
     )
-    MultiplyActorByDummyCount: PointerProperty(name = "MultiplyActorByDummyCount", description = "Select a DummyGroup object (or nothing)", type = bpy.types.Object)
-    IgnoreForceActorVariation: BoolProperty(
+    MultiplyActorByDummyCount: PointerProperty(name = "MultiplyActorByDummyCount", description = "Select a DummyGroup object (or nothing)", type = bpy.types.Object)# type: ignore
+    IgnoreForceActorVariation: BoolProperty(# type: ignore
            name="IgnoreForceActorVariation", description="",
     )
-    IgnoreDistanceScale: BoolProperty(
+    IgnoreDistanceScale: BoolProperty(# type: ignore
            name="IgnoreDistanceScale", description="",default=True
     )
-    m_MinScaleFactor: FloatProperty(
+    m_MinScaleFactor: FloatProperty(# type: ignore
            name="m_MinScaleFactor", description="A scale of 0.5 seems to be the default value.",
            default=0.5, min = 0.0
     )
-    m_MaxScaleFactor: FloatProperty(
+    m_MaxScaleFactor: FloatProperty(# type: ignore
            name="m_MaxScaleFactor", description="",
            default=0.5, min = 0.0
     )
-    DefaultStateDummy: PointerProperty(name = "DefaultStateDummy", description = "Select a Dummy object", type = bpy.types.Object)
-    StartDummyGroup: PointerProperty(name = "StartDummyGroup", description = "Select a Dummy object, used with multiply actor count to create a group of units that have the same animation at different locations. REQUIRES properly named dummies inside the dummy group. For a dummy group named 'group', name them 'group_0', 'group_1', and so on.", type = bpy.types.Object)
+    DefaultStateDummy: PointerProperty(name = "DefaultStateDummy", description = "Select a Dummy object", type = bpy.types.Object)# type: ignore
+    StartDummyGroup: PointerProperty(name = "StartDummyGroup",  # type: ignore
+            description = "Select a Dummy object, used with multiply actor count to create a group of units that have the same animation at different locations. REQUIRES properly named dummies inside the dummy group. For a dummy group named 'group', name them 'group_0', 'group_1', and so on.",
+            type = bpy.types.Object
+    ) 
 
 def guid_enum_callback(guid_list_item, context):
     guid_type = guid_list_item.guid_type
@@ -59,7 +62,7 @@ def guid_enum_callback(guid_list_item, context):
 class GUIDVariationListItem(PropertyGroup):
     """Group of properties representing an item in the list."""
     #guid: StringProperty(name = "GUID", default = "", description = "ID or Alias")
-    guid_type : EnumProperty(
+    guid_type : EnumProperty( # type: ignore
             name='Type',
             description='GUID Type',
             items= [
@@ -72,13 +75,13 @@ class GUIDVariationListItem(PropertyGroup):
                 ("Bird", "Bird", "Bird"),
             ],
             default='Resident')
-    guid: EnumProperty(
+    guid: EnumProperty( # type: ignore
             name='GUID',
             description='GUID',
             items= guid_enum_callback,
             #default='production_generic_worker_01'
             )
-    custom_guid: StringProperty(
+    custom_guid: StringProperty( # type: ignore
             name='GUID',
             description='Enter your custom GUID here.',
             default=''
@@ -86,7 +89,7 @@ class GUIDVariationListItem(PropertyGroup):
 
 class FeedbackSequenceListItem(PropertyGroup):
     """Group of properties representing an item in the list."""
-    animation_type: EnumProperty(
+    animation_type: EnumProperty( # type: ignore
             name='Type',
             description='Animation Type',
             items=[
@@ -95,15 +98,15 @@ class FeedbackSequenceListItem(PropertyGroup):
             ('TimedIdleAnimation', 'TimedIdleAnimation', 'Repeat animation for time in ms')],
             default='IdleAnimation')
     
-    sequence: EnumProperty(
+    sequence: EnumProperty( # type: ignore
             name='Sequence',
             description='Animation Sequence',
             items= feedback_enums.animation_sequences,
             default='idle01')
     
-    target_empty: PointerProperty(name="TargetDummy", type=bpy.types.Object)
+    target_empty: PointerProperty(name="TargetDummy", type=bpy.types.Object) # type: ignore
     
-    speed_factor_f: FloatProperty(
+    speed_factor_f: FloatProperty( # type: ignore
            name="SpeedFactorF",
            description="0.0 is default speed",
            default=0.0,
@@ -111,14 +114,14 @@ class FeedbackSequenceListItem(PropertyGroup):
            max = 10.0,
     )
     
-    min_play_count: IntProperty(
+    min_play_count: IntProperty( # type: ignore
            name="MinPlayCount",
            description="",
            default=1,
            min = 0,
            max = 100,
     )
-    max_play_count: IntProperty(
+    max_play_count: IntProperty( # type: ignore
            name="MaxPlayCount",
            description="",
            default=1,
@@ -126,13 +129,13 @@ class FeedbackSequenceListItem(PropertyGroup):
            max = 100,
     )
     
-    min_play_time: IntProperty(
+    min_play_time: IntProperty( # type: ignore
            name="MinPlayTime",
            description="",
            default=1000,
            min = 0,
     )
-    max_play_time: IntProperty(
+    max_play_time: IntProperty( # type: ignore
            name="MaxPlayTime",
            description="",
            default=1000,
@@ -286,25 +289,6 @@ class LIST_OT_DuplicateItem(Operator):
         feedback_sequence_list[len(feedback_sequence_list)-1].copy_from(feedback_sequence_list[index])
         return{'FINISHED'}
 
-class LIST_OT_DeleteItem(Operator):
-    """Delete the selected item from the list."""
-
-    bl_idname = "feedback_sequence_list.delete_item"
-    bl_label = "Deletes an item"
-
-    @classmethod
-    def poll(cls, context):
-        return context.active_object.feedback_sequence_list
-
-    def execute(self, context):
-        feedback_sequence_list = context.active_object.feedback_sequence_list
-        index = context.active_object.feedback_sequence_list_index
-
-        feedback_sequence_list.remove(index)
-        context.active_object.feedback_sequence_list_index = min(max(0, index - 1), len(feedback_sequence_list) - 1)
-
-        return{'FINISHED'}
-
 
 class LIST_OT_MoveItem(Operator):
     """Move an item in the list."""
@@ -312,7 +296,7 @@ class LIST_OT_MoveItem(Operator):
     bl_idname = "feedback_sequence_list.move_item"
     bl_label = "Move an item in the list"
 
-    direction: bpy.props.EnumProperty(items=(('UP', 'Up', ""),
+    direction: bpy.props.EnumProperty(items=(('UP', 'Up', ""),  # type: ignore
                                               ('DOWN', 'Down', ""),))
 
     @classmethod

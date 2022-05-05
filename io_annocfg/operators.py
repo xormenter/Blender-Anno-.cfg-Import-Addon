@@ -3,7 +3,7 @@ import bpy
 
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
-from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty,CollectionProperty
 from bpy.types import Operator, AddonPreferences
 from bpy.types import Object as BlenderObject
 import xml.etree.ElementTree as ET
@@ -20,7 +20,8 @@ from .simple_anno_feedback_encoding import SimpleAnnoFeedbackEncoding
 from .prefs import IO_AnnocfgPreferences
 from .anno_objects import get_anno_object_class, Transform, AnnoObject, MainFile, Model, SimpleAnnoFeedbackEncodingObject, \
     SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup, \
-    Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig, Light, IfoFile, Cf7File, IslandFile, PropGridInstance, IslandGamedataFile, AssetsXML
+    Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig, Light, IfoFile, Cf7File, IslandFile, PropGridInstance, IslandGamedataFile, AssetsXML,\
+    Animation
 
 
 from .utils import data_path_to_absolute_path, to_data_path
@@ -232,32 +233,45 @@ class ImportAnnoCfg(Operator, ImportHelper):
         description="Adds the file as a FILE_ object under the selected MAIN_FILE object. Note: Some .cfgs require specific sequences in the main files ifo in order to show up in game properly.",
         default=False,
     )
+    
+    files: CollectionProperty( # type: ignore
+        type=bpy.types.OperatorFileListElement,
+        options={'HIDDEN', 'SKIP_SAVE'},
+    )
 
     def execute(self, context):
-        self.path = Path(self.filepath)
-        if self.import_as_subfile:
-            return self.import_subfile(context)
-        
-        if not self.path.suffix == ".cfg" or not self.path.exists():
-            self.report({'ERROR_INVALID_INPUT'}, f"Invalid file or extension")
-            return {'CANCELLED'}
-        
-        file_obj = self.import_cfg_file(self.path, "MAIN_FILE_" + self.path.name)
-        
-        if self.also_import_ifo:
-            self.import_ifo_file(self.path.with_suffix(".ifo"), file_obj)
+        parent = context.active_object
+        dirname = os.path.dirname(self.filepath)
+        for f in self.files:
+            self.filepath = os.path.join(dirname, f.name)
+            print("IMPORTING FILE", self.filepath)
             
-        if self.also_import_cf7:
-            if self.import_feedback_type == "safe" and self.path.with_suffix(".xml").exists():
-                self.import_safe_file(self.path.with_suffix(".xml"), file_obj)
-            else:
-                self.import_cf7_file(self.path.with_suffix(".cf7"), file_obj)
+            self.path = Path(self.filepath)
+            if self.import_as_subfile:
+                self.import_subfile(context, parent)
+                continue
+            
+            if not self.path.suffix == ".cfg" or not self.path.exists():
+                self.report({'ERROR_INVALID_INPUT'}, f"Invalid file or extension")
+                return {'CANCELLED'}
+            
+            file_obj = self.import_cfg_file(self.path, "MAIN_FILE_" + self.path.name)
+            
+            if self.also_import_ifo:
+                self.import_ifo_file(self.path.with_suffix(".ifo"), file_obj)
+                
+            if self.also_import_cf7:
+                if self.import_feedback_type == "safe" and self.path.with_suffix(".xml").exists():
+                    self.import_safe_file(self.path.with_suffix(".xml"), file_obj)
+                else:
+                    self.import_cf7_file(self.path.with_suffix(".cf7"), file_obj)
 
-        self.report({'INFO'}, "Import completed!")
+            self.report({'INFO'}, "Import of {self.filepath} completed!")
+        self.report({'INFO'}, "Imported all Files.")
         return {'FINISHED'}
     
-    def import_subfile(self, context):
-        parent = context.active_object
+    def import_subfile(self, context, parent):
+        
         if not parent or not get_anno_object_class(parent) == MainFile:
             self.report({'ERROR_INVALID_CONTEXT'}, f"MAIN_FILE_ Object needs to be selected.")
             return {'CANCELLED'}
@@ -633,13 +647,81 @@ class ExportAnnoModelOperator(Operator, ExportHelper):
             return {'RUNNING_MODAL'}
         return super().invoke(context, _event)
             
-
+# class ExportAnimatedAnnoModelOperator(Operator, ExportHelper):
+#     """Exports the selected ANIMATION."""
+#     bl_idname = "export.anno_animation_files" 
+#     bl_label = "Export Anno Animation (.rdm)"
+    
+#     filename_ext = ".rdm"
+#     filter_glob: StringProperty( #type: ignore
+#         default="*.rdm;",
+#         options={'HIDDEN'},
+#         maxlen=255,  # Max internal buffer length, longer would be clamped.
+#     )
+#     vertex_format: EnumProperty( #type: ignore
+#         default="P4h_N4b_G4b_B4b_T2h_I4b_W4b",
+#         items = [
+#             ("P4h_N4b_G4b_B4b_T2h_I4b_W4b", "P4h_N4b_G4b_B4b_T2h_I4b_W4b", "Check the material to see which vertex format to use."),
+#             ("P4h_N4b_G4b_B4b_T2h_I4b ", "P4h_N4b_G4b_B4b_T2h_I4b ", "Check the material to see which vertex format to use."),
+#         ],
+#         name = "Vertex Format"
+#     )
+#     def select_children(self, obj):
+#         for child in obj.children:
+#             child.select_set(True)
+#             self.select_children(child)
+            
+#     def execute(self, context):
+#         self.obj = context.active_object
+#         if not self.obj or not get_anno_object_class(self.obj) == Animation:
+#             self.report({'ERROR_INVALID_CONTEXT'}, f"ANIMATION_ Object needs to be selected.")
+#             return {'CANCELLED'}
+#         self.select_children(self.obj)
+#         self.obj.select_set(False)
+            
+        
+#         self.path = Path(self.filepath)
+#         self.export_rdm()
+#         try:
+#             data_path = to_data_path(self.path)
+#             self.obj.dynamic_properties.set("FileName", data_path.as_posix(), replace = True)
+#         except ValueError:
+#             self.report({'INFO'}, f'Warning, export not relative to rda folder, could not adapt FileName')
+#         try:
+#             data_path = to_data_path(self.path)
+#             self.obj.parent.parent.dynamic_properties.set("FileName", data_path.as_posix(), replace = True)
+#         except:
+#             pass
+#         self.report({'INFO'}, f'Exported {self.obj.name} to {self.filepath}')
+#         return {'FINISHED'}
+    
+#     def export_rdm(self):
+#         self.export_glb(self.path.with_suffix(".glb"))
+        
+#         rdm4_path = IO_AnnocfgPreferences.get_path_to_rdm4()
+#         if rdm4_path.exists() and self.path.with_suffix(".glb").exists():
+#             #Delete the old .rdm file first
+#             if self.path.exists():
+#                 self.path.unlink()
+#             print(f"Subprocess: \"{rdm4_path}\" --gltf={self.vertex_format} --input \"{self.path.with_suffix('.glb')}\" -n --outdst \"{self.path.parent}\" -sa")
+#             subprocess.call(f"\"{rdm4_path}\" --gltf={self.vertex_format} --input \"{self.path.with_suffix('.glb')}\" -n --outdst \"{self.path.parent}\" -sa --no_transform", shell = True)
+#     def export_glb(self, filepath = None):
+#         if filepath is None:
+#             filepath = self.filepath
+#         bpy.ops.export_scene.gltf(filepath=str(filepath), use_selection = True, check_existing=True, export_format='GLB', export_tangents=True, export_animations = True, export_force_sampling = True, optimize_animation_size = False)
+        
+#     @classmethod
+#     def poll(cls, context):
+#         if not context.active_object:
+#             return False
+#         return get_anno_object_class(context.active_object) == Animation
+    
 class OBJECT_OT_add_anno_object(Operator, AddObjectHelper):
     """Create a new Anno Feedback Object"""
     bl_idname = "mesh.add_anno_object"
     bl_label = "Add Anno Feedback Object"
     bl_options = {'REGISTER', 'UNDO'}
-    object_type: EnumProperty(
+    object_type: EnumProperty( # type: ignore
         name='Type',
         description='Object Type',
         items={
@@ -743,6 +825,7 @@ classes = (
     ImportAllPropsOperator,
     ImportAnnoIsland,
     ExportAnnoIsland,
+    # ExportAnimatedAnnoModelOperator,
 )
 
 def add_anno_object_button(self, context):
@@ -762,6 +845,9 @@ def menu_func_export_cfg(self, context):
 def menu_func_export_model(self, context):
     self.layout.operator(ExportAnnoModelOperator.bl_idname, text="Anno Model (.rdm/.glb)")
     
+# def menu_func_export_animation(self, context):
+#     self.layout.operator(ExportAnimatedAnnoModelOperator.bl_idname, text="Anno Animation (.rdm)")
+        
 def menu_func_import_model(self, context):
     self.layout.operator(ImportAnnoModelOperator.bl_idname, text="Anno Model (.rdm/.glb)")
 def menu_func_import_prop(self, context):
@@ -786,6 +872,7 @@ export_funcs = [
     menu_func_export_cfg,
     menu_func_export_model,
     menu_func_export_island,
+    # menu_func_export_animation,
 ]
 
 def register():

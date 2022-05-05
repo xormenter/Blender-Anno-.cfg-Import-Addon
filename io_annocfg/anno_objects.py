@@ -14,1239 +14,16 @@ from bpy.props import EnumProperty, BoolProperty, PointerProperty, IntProperty, 
 from bpy.types import PropertyGroup, Panel, Operator, UIList
 import bmesh
 import sys
-def str_to_class(classname):
-    return getattr(sys.modules[__name__], classname)
 
+from collections import defaultdict
 from math import radians
 from .prefs import IO_AnnocfgPreferences
-from .utils import data_path_to_absolute_path, to_data_path
+from .utils import *
+from .transform import Transform
+from .material import Material, ClothMaterial
 from .feedback_ui import FeedbackConfigItem, GUIDVariationListItem, FeedbackSequenceListItem
 from . import feedback_enums
 
-def parse_float_node(node, query, default_value = 0.0):
-    value = default_value
-    if node.find(query) is not None:
-        value = float(node.find(query).text)
-    return value
-
-def get_float(node, query, default_value = 0.0):
-    value = default_value
-    if node.find(query) is not None:
-        value = float(node.find(query).text)
-    return value
-
-
-
-class Transform:
-    """
-    Parses an xml tree node for transform operations, stores them and can apply them to a blender object.
-    """
-    def __init__(self, loc = [0,0,0], rot = [1,0,0,0], sca = [1,1,1], anno_coords = True):
-        self.location = loc
-        self.rotation = rot
-        self.rotation_euler = [0,0,0]
-        self.euler_rotation = False
-        self.scale = sca
-        self.anno_coords = anno_coords
-        
-    def get_component_value(self, component_name: str) -> float:
-        component_by_name = {
-            "location.x": self.location[0],
-            "location.y": self.location[1],
-            "location.z": self.location[2],
-            
-            "rotation.w": self.rotation[0],
-            "rotation.x": self.rotation[1],
-            "rotation.y": self.rotation[2],
-            "rotation.z": self.rotation[3],
-            
-            "rotation_euler.x": self.rotation_euler[0],
-            "rotation_euler.y": self.rotation_euler[1],
-            "rotation_euler.z": self.rotation_euler[2],
-            
-            "scale.x": self.scale[0],
-            "scale.y": self.scale[1],
-            "scale.z": self.scale[2],
-        }
-        return component_by_name[component_name]
-        
-    def get_component_from_node(self, node: ET.Element, transform_paths: Dict[str, str], component: str, default = 0.0) -> float:
-        query = transform_paths.get(component, None)
-        if not query:
-            return default
-        value = float(get_text_and_delete(node, query, str(default)))
-        return value
-        
-    @classmethod
-    def from_node(cls, node: ET.Element, transform_paths, enforce_equal_scale: bool, euler_rotation: bool = False) -> Transform:
-        instance = cls()
-        instance.location[0] = instance.get_component_from_node(node, transform_paths, "location.x")
-        instance.location[1] = instance.get_component_from_node(node, transform_paths, "location.y")
-        instance.location[2] = instance.get_component_from_node(node, transform_paths, "location.z")
-        
-        instance.scale[0] = instance.get_component_from_node(node, transform_paths, "scale.x", 1.0)
-        instance.scale[1] = instance.get_component_from_node(node, transform_paths, "scale.y", 1.0)
-        instance.scale[2] = instance.get_component_from_node(node, transform_paths, "scale.z", 1.0)
-        if enforce_equal_scale:
-            instance.scale[1] = instance.scale[0]
-            instance.scale[2] = instance.scale[1]
-        
-        if not euler_rotation:        
-            instance.rotation[0] = instance.get_component_from_node(node, transform_paths, "rotation.w", 1.0)
-            instance.rotation[1] = instance.get_component_from_node(node, transform_paths, "rotation.x")
-            instance.rotation[2] = instance.get_component_from_node(node, transform_paths, "rotation.y")
-            instance.rotation[3] = instance.get_component_from_node(node, transform_paths, "rotation.z")
-        else:
-            instance.rotation_euler[0] = instance.get_component_from_node(node, transform_paths, "rotation_euler.x")
-            instance.rotation_euler[1] = instance.get_component_from_node(node, transform_paths, "rotation_euler.y")
-            instance.rotation_euler[2] = instance.get_component_from_node(node, transform_paths, "rotation_euler.z")
-            instance.euler_rotation = True
-            
-        instance.anno_coords = True
-        return instance
-        
-    @classmethod
-    def from_blender_object(cls, obj, enforce_equal_scale: bool, euler_rotation: bool = False) -> Transform:
-        if enforce_equal_scale:
-            if len(set([obj.scale[0], obj.scale[1], obj.scale[2]])) > 1:
-                print(obj.name, "Cannot have different scale values on xyz")
-        instance = cls(obj.location, [1,0,0,0], obj.scale, False)
-        if not euler_rotation:
-            obj.rotation_mode = "QUATERNION"
-            instance.rotation = list(obj.rotation_quaternion)
-            return instance
-        obj.rotation_mode = "XYZ"
-        instance.rotation_euler = [obj.rotation_euler.x, obj.rotation_euler.y, obj.rotation_euler.z]
-        return instance
-    
-    def convert_to_blender_coords(self):
-        if not self.anno_coords:
-            return
-        if IO_AnnocfgPreferences.mirror_models():
-            self.location = (-self.location[0], -self.location[2], self.location[1])
-            self.rotation = (self.rotation[0], self.rotation[1], self.rotation[3], -self.rotation[2])
-        else:     
-            self.location = (self.location[0], -self.location[2], self.location[1])
-            self.rotation = (self.rotation[0], self.rotation[1], self.rotation[3], self.rotation[2])
-        self.rotation_euler = (self.rotation_euler[0], self.rotation_euler[2], self.rotation_euler[1])
-        self.scale = (self.scale[0], self.scale[2], self.scale[1])
-        
-        self.anno_coords = False
-
-    def convert_to_anno_coords(self):
-        if self.anno_coords:
-            return
-        if IO_AnnocfgPreferences.mirror_models():
-            self.location = (-self.location[0], self.location[2], -self.location[1])
-            self.rotation = (self.rotation[0], self.rotation[1], -self.rotation[3], self.rotation[2])
-        else:     
-            self.location = (self.location[0], self.location[2], -self.location[1])
-            self.rotation = (self.rotation[0], self.rotation[1], self.rotation[3], self.rotation[2])
-        self.rotation_euler = (self.rotation_euler[0], self.rotation_euler[2], self.rotation_euler[1])
-        self.scale = (self.scale[0], self.scale[2], self.scale[1])
-        
-        self.anno_coords
-    
-    def mirror_mesh(self, object):
-        if not IO_AnnocfgPreferences.mirror_models():
-            return
-        if not object.data or not hasattr(object.data, "vertices"):
-            return
-        for v in object.data.vertices:
-            v.co.x *= -1.0
-            
-        #Inverting normals for import AND Export they are wrong because of scaling on the x axis.
-        #Warn people that this will break exports from .blend files made with an earlier version!!!
-        mesh = object.data
-        bm = bmesh.new()
-        bm.from_mesh(mesh) # load bmesh
-        for f in bm.faces:
-             f.normal_flip()
-        bm.normal_update() # not sure if req'd
-        bm.to_mesh(mesh)
-        mesh.update()
-        bm.clear() #.. clear before load next
-    
-    def apply_to(self, object):
-        if self.anno_coords:
-            self.convert_to_blender_coords()
-        self.mirror_mesh(object)
-        object.location = self.location
-        if not self.euler_rotation:
-            object.rotation_mode = "QUATERNION"
-            object.rotation_quaternion = self.rotation
-        else:
-            object.rotation_mode = "XYZ"
-            object.rotation_euler = self.rotation_euler
-        object.scale = self.scale
-
-class BoolPropertyGroup(PropertyGroup):
-    tag : StringProperty(name = "", default = "SomeBool")
-    value : BoolProperty(name = "", default = False)
-
-class FeedbackSequencePropertyGroup(PropertyGroup):
-    tag : StringProperty(name = "", default = "SomeSequence")
-    value : EnumProperty(
-        name='',
-        description='Animation Sequence',
-        items= feedback_enums.animation_sequences,
-        default='idle01'
-    )
-
-class IntPropertyGroup(PropertyGroup):
-    tag : StringProperty(name = "", default = "SomeInt")
-    value : IntProperty(name = "", default = 0)
-class StringPropertyGroup(PropertyGroup):
-    tag : StringProperty(name = "", default = "SomeString")
-    value : StringProperty(name = "", default = "")
-
-class FilenamePropertyGroup(PropertyGroup):
-    tag : StringProperty(name = "", default = "SomeString")
-    value : StringProperty(name = "", default = "", subtype = "FILE_PATH")
-class FloatPropertyGroup(PropertyGroup):
-    tag : StringProperty(name = "", default = "SomeFloat")
-    value : FloatProperty(name = "", default = 0.0)
-    
-class ColorPropertyGroup(PropertyGroup):
-    tag : StringProperty(name = "", default = "SomeFloat")
-    value : FloatVectorProperty(name = "", default = [0.0, 0.0, 0.0], subtype = "COLOR", min= 0.0, max = 1.0)
-
-class Converter(ABC):
-    @classmethod
-    @abstractmethod
-    def data_type(cls):
-        pass
-    @classmethod
-    def from_string(cls, s):
-        """Convert the string s from the input xml node into a blender representation of type data_type()
-
-        Args:
-            s (str): xml_node.text
-
-        Returns:
-            data_type(): Blender representation
-        """
-        value = cls.data_type()
-        try:
-            value = cls.data_type()(s)
-        except:
-            print(f"Error: failed to convert {s} to {cls.data_type()}")
-        return cls.data_type()(s)
-    @classmethod
-    def to_string(cls, value):
-        """Convert the blender representation value into a string for the xml node.
-        Args:
-            value (daty_type()): Blender representation
-
-        Returns:
-            str: XML text string
-        """  
-        return str(value)
-
-class StringConverter(Converter):
-    @classmethod
-    def data_type(cls):
-        return str
-
-class BoolConverter(Converter):
-    @classmethod
-    def data_type(cls):
-        return bool
-    @classmethod
-    def from_string(cls, s):
-        return bool(int(s))
-    @classmethod
-    def to_string(cls, value):
-        return str(int(value))
-        
-class IntConverter(Converter):
-    @classmethod
-    def data_type(cls):
-        return int
-
-class FloatConverter(Converter):
-    @classmethod
-    def data_type(cls):
-        return float
-    @classmethod
-    def to_string(cls, value):
-        return format_float(value)
-class FeedbackSequenceConverter(Converter):
-    @classmethod
-    def data_type(cls):
-        return string
-    @classmethod
-    def from_string(cls, s): 
-        seq_id = int(s)
-        return feedback_enums.NAME_BY_SEQUENCE_ID.get(seq_id, "none")
-    @classmethod
-    def to_string(cls, value): 
-        seq_id = feedback_enums.SEQUENCE_ID_BY_NAME.get(value, -1)
-        return str(seq_id)
-
-class ColorConverter(Converter):
-    @classmethod
-    def data_type(cls):
-        return str
-    @classmethod
-    def from_string(cls, s): #f.e. COLOR[1.0, 0.5, 0.3]
-        values = s.replace(" ", "").replace("_COLOR[", "").replace("]", "").split(",")
-        assert len(values) == 3
-        return [format_float(value) for value in values]
-    @classmethod
-    def to_string(cls, value): #f.e. [1.0, 0.5, 0.3]
-        assert len(value) == 3
-        return f"_COLOR[{', '.join([str(val) for val in value])}]"
-
-converter_by_tag = {
-    "ConfigType": StringConverter,
-    "FileName" : StringConverter,
-    "Name" : StringConverter,
-    "AdaptTerrainHeight" : BoolConverter,
-    "HeightAdaptationMode" : BoolConverter,
-    "DIFFUSE_ENABLED" : BoolConverter,
-    "NORMAL_ENABLED" : BoolConverter,
-    "METALLIC_TEX_ENABLED" : BoolConverter,
-    "SEPARATE_AO_TEXTURE" : BoolConverter, 
-    "HEIGHT_MAP_ENABLED" : BoolConverter,
-    "NIGHT_GLOW_ENABLED" : BoolConverter,
-    "DYE_MASK_ENABLED" : BoolConverter,
-    "cUseTerrainTinting" : BoolConverter,
-    "SELF_SHADOWING_ENABLED" : BoolConverter, 
-    "WATER_CUTOUT_ENABLED" : BoolConverter,
-    "ADJUST_TO_TERRAIN_HEIGHT" : BoolConverter, 
-    "GLOW_ENABLED": BoolConverter,
-    "SequenceID": FeedbackSequenceConverter,
-    "m_IdleSequenceID": FeedbackSequenceConverter,
-}
-
-def get_converter_for(tag, value_string):
-    if tag in converter_by_tag:
-        return converter_by_tag[tag]
-    if value_string.startswith("_COLOR["):
-        return ColorConverter
-    if value_string.isnumeric() or value_string.lstrip("-").isnumeric():
-        return IntConverter
-    if is_type(float, value_string):
-        return FloatConverter
-
-    #TODO: CDATA Converter, mIdleSequenceConverter, etc
-    return StringConverter
-
-class XMLPropertyGroup(PropertyGroup):
-    tag : StringProperty(name = "", default = "")
-    
-    config_type : StringProperty(name = "", default = "")
-    
-    feedback_sequence_properties : CollectionProperty(name = "FeedbackSequences", type = FeedbackSequencePropertyGroup)
-    boolean_properties : CollectionProperty(name = "Bools", type = BoolPropertyGroup)
-    filename_properties : CollectionProperty(name = "Filenames", type = FilenamePropertyGroup)
-    string_properties : CollectionProperty(name = "Strings", type = StringPropertyGroup)
-    int_properties : CollectionProperty(name = "Ints", type = IntPropertyGroup)
-    float_properties : CollectionProperty(name = "Floats", type = FloatPropertyGroup)
-    color_properties : CollectionProperty(name = "Colors", type = ColorPropertyGroup)
-    dynamic_properties : CollectionProperty(name = "DynamicProperties", type = XMLPropertyGroup)
-    
-    
-    hidden : BoolProperty(name = "Hide", default = False)
-    
-    def reset(self):
-        self.feedback_sequence_properties.clear()
-        self.boolean_properties.clear()
-        self.filename_properties.clear()
-        self.string_properties.clear()
-        self.int_properties.clear()
-        self.float_properties.clear()
-        self.color_properties.clear()
-        self.dynamic_properties.clear()
-    
-    def get_string(self, tag, default = None):
-        for item in self.string_properties:
-            if item.tag == tag:
-                return item.value
-        for item in self.filename_properties:
-            if item.tag == tag:
-                return item.value
-        return default
-    def set(self, tag, value_string, replace = False):
-        converter = get_converter_for(tag, value_string)
-        value = converter.from_string(value_string)
-        
-        # Special fields
-        if tag == "ConfigType":
-            self.config_type = value
-            return
-            
-        properties_by_converter = {
-            BoolConverter: self.boolean_properties,
-            StringConverter: self.string_properties,
-            IntConverter: self.int_properties,
-            FloatConverter: self.float_properties,
-            ColorConverter: self.color_properties,
-            FeedbackSequenceConverter: self.feedback_sequence_properties,
-        }
-        
-        properties = properties_by_converter[converter]
-        if tag == "FileName":
-            properties = self.filename_properties
-        if replace:
-            for item in properties:
-                if item.tag == tag:
-                    item.value = value
-                    return
-        properties.add()
-        properties[-1].tag = tag
-        properties[-1].value = value
-        
-    def from_node(self, node):
-        self.tag = node.tag
-        for child_node in list(node):
-            if len(list(child_node)) == 0:
-                value = child_node.text
-                if value is None:
-                    value = ""
-                self.set(child_node.tag, value)
-            else:
-                self.dynamic_properties.add()
-                self.dynamic_properties[-1].from_node(child_node)
-        return self
-
-    def to_node(self, target_node):
-        target_node.tag = self.tag
-        if self.config_type:
-            find_or_create(target_node, "ConfigType").text = self.config_type
-        for property_group, converter in [
-                            (self.feedback_sequence_properties, FeedbackSequenceConverter),
-                            (self.string_properties, StringConverter),
-                            (self.int_properties, IntConverter),
-                            (self.filename_properties, StringConverter),
-                            (self.float_properties, FloatConverter),
-                            (self.boolean_properties, BoolConverter),
-                        ]:
-            for prop in property_group:
-                value_string = converter.to_string(prop.value)
-                #It is better to always create a new subelement - otherwise there can only be one of each tag.
-                #Or does this create any problems?
-                #find_or_create(target_node, prop.tag).text = value_string
-                ET.SubElement(target_node, prop.tag).text = value_string
-        for dyn_prop in self.dynamic_properties:
-            subnode = ET.SubElement(target_node, dyn_prop.tag)
-            dyn_prop.to_node(subnode)
-        return target_node
-    
-    def draw(self, layout, split_ratio = 0.3):
-        col = layout.column()
-        header = col.row()
-        split = header.split(factor=0.8)
-        split.label(text = f"{self.tag}: {self.config_type}")
-        split.prop(self, "hidden")
-        if self.hidden:
-            return
-        col.separator(factor = 1.0)
-        for kw_properties in [self.feedback_sequence_properties, self.filename_properties,self.boolean_properties,
-                              self.int_properties, self.float_properties, self.string_properties, self.color_properties]:
-            for item in kw_properties:
-                row = col.row()
-                split = row.split(factor=split_ratio)
-                split.alignment = "RIGHT"
-                split.label(text = item.tag)
-                split.prop(item, "value")
-        
-        for item in self.dynamic_properties:
-            box = col.box()
-            item.draw(box, split_ratio)
-    
-
-class PT_AnnoScenePropertyPanel(Panel):
-    bl_label = "Anno Scene"
-    bl_idname = "VIEW_3D_PT_AnnoScene"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'Anno Object' 
-    #bl_context = "object"
-    
-    @classmethod
-    def poll(cls, context):
-        return True
-            
-    def draw(self, context):
-        layout = self.layout
-        col = layout.column()
-        
-        col.prop(context.scene, "anno_mod_folder")
-
-class ConvertCf7DummyToDummy(Operator):
-    bl_idname = "object.convertcf7dummy"
-    bl_label = "Convert to SAFE Dummy"
-
-    def execute(self, context):
-        obj = context.active_object
-        obj.anno_object_class_str = obj.anno_object_class_str.replace("Cf7", "")
-        obj.name = obj.name.replace("Cf7", "")
-        return {'FINISHED'}
-
-class LoadAnimations(Operator):
-    bl_idname = "object.load_animations"
-    bl_label = "Load Animations"
-
-    def execute(self, context):
-        obj = context.active_object
-        node = obj.dynamic_properties.to_node(ET.Element("Config"))
-        if node.find("Animations") is not None:
-            ET.SubElement(node.find("Animations"), "FileName").text = get_text(node, "FileName")
-            AnimationsNode.xml_to_blender(node.find("Animations"), obj)
-        return {'FINISHED'}
-
-class PT_AnnoObjectPropertyPanel(Panel):
-    bl_label = "Anno Object"
-    bl_idname = "VIEW_3D_PT_AnnoObject"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'Anno Object' 
-    #bl_context = "object"
-    
-    @classmethod
-    def poll(cls, context):
-        return True
-            
-    def draw(self, context):
-        layout = self.layout
-        obj = context.active_object
-        
-        if not obj:
-            return
-        col = layout.column()
-        row = col.row()
-        
-        row.prop(obj, "anno_object_class_str")
-        row.enabled = False
-        if "Cf7" in obj.anno_object_class_str:
-            col.operator(ConvertCf7DummyToDummy.bl_idname, text = "Convert to SimpleAnnoFeedback")
-        if "Model" in obj.anno_object_class_str:
-            col.operator(LoadAnimations.bl_idname, text = "Load Animations")
-        col.prop(obj, "parent")
-        dyn = obj.dynamic_properties
-        dyn.draw(col)
-
-class PT_AnnoMaterialObjectPropertyPanel(Panel):
-    bl_label = "Anno Material"
-    bl_idname = "WINDOW_PT_AnnoMaterialObject"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
-    bl_category = 'Anno Material' 
-    bl_context = "material"
-        
-    def draw(self, context):
-            layout = self.layout
-            obj = context.active_object.active_material
- 
-            if not obj:
-                return
-            col = layout.column()
-            dyn = obj.dynamic_properties
-            dyn.draw(col, 0.5)
-class AnnoImageTextureProperties(PropertyGroup):
-    enabled : BoolProperty( #type: ignore
-            name='Enabled',
-            description='',
-            default=True)
-    original_file_extension: EnumProperty( #type: ignore
-            name='Extension',
-            description='Some textures are stored as .png (for example default masks). Use .psd for your own textures (saved as .dds).',
-            items = [
-                (".psd", ".psd", ".psd or .dds"),
-                (".png", ".png", ".psd or .dds"),
-            ],
-            default='.psd'
-            )        
-
-class PT_AnnoImageTexture(Panel):
-    bl_label = "Anno Texture"
-    bl_idname = "SCENE_PT_AnnoTexture"
-    bl_space_type = 'NODE_EDITOR'
-    bl_region_type = 'UI'
-    bl_category = 'Anno Texture' 
-    #bl_context = "object"
-    
-    @classmethod
-    def poll(cls, context):
-        return (context.space_data.type == 'NODE_EDITOR' and
-                context.space_data.tree_type == 'ShaderNodeTree' and type(context.active_node) == bpy.types.ShaderNodeTexImage)
-
-    def draw(self, context):
-        layout = self.layout
-        node = context.active_node.anno_properties
-        col = layout.column()
-        col.prop(node, "enabled")
-        col.prop(node, "original_file_extension")
-
-class Material:
-    """
-    Can be created from an xml material node. Stores with diffuse, normal and metal texture paths and can create a corresponding blender material from them.
-    Uses a cache to avoid creating the exact same blender material multiple times when loading just one .cfg 
-    """
-    
-    texture_definitions = {
-        "cModelDiffTex":"DIFFUSE_ENABLED",
-        "cModelNormalTex":"NORMAL_ENABLED",
-        "cModelMetallicTex":"METALLIC_TEX_ENABLED",
-        "cSeparateAOTex":"SEPARATE_AO_TEXTURE",
-        "cHeightMap":"HEIGHT_MAP_ENABLED",
-        "cNightGlowMap":"NIGHT_GLOW_ENABLED", 
-        "cDyeMask":"DYE_MASK_ENABLED"
-    }
-    texture_names = {
-        "diffuse":"cModelDiffTex",
-        "normal":"cModelNormalTex",
-        "metallic":"cModelMetallicTex",
-        "ambient":"cSeparateAOTex",
-        "height":"cHeightMap",
-        "night_glow":"cNightGlowMap",
-        "dye":"cDyeMask",
-    }
-    # color_definitions = {
-    #     "cDiffuseColor":("cDiffuseColor.r", "cDiffuseColor.g", "cDiffuseColor.b"),
-    #     "cEmissiveColor":("cEmissiveColor.r", "cEmissiveColor.g", "cEmissiveColor.b"),
-    # }         "":"",
-    
-
-    color_definitions = ["cDiffuseColor", "cEmissiveColor"]
-    custom_property_default_value = {
-        "ShaderID":"", "VertexFormat":"", "NumBonesPerVertex":"", "cUseTerrainTinting":"", "Common":"", \
-        "cTexScrollSpeed":"", "cParallaxScale":"", "PARALLAX_MAPPING_ENABLED":"", \
-        "SELF_SHADOWING_ENABLED":"", "WATER_CUTOUT_ENABLED":"", "TerrainAdaption":"", "ADJUST_TO_TERRAIN_HEIGHT":"", "VERTEX_COLORED_TERRAIN_ADAPTION":"", \
-        "ABSOLUTE_TERRAIN_ADAPTION":"", "Environment":"", "cUseLocalEnvironmentBox":"", "cEnvironmentBoundingBox.x":"", "cEnvironmentBoundingBox.y":"", "cEnvironmentBoundingBox.z":"", \
-        "cEnvironmentBoundingBox.w":"", "Glow":"", "GLOW_ENABLED":"", \
-        "WindRipples":"", "WIND_RIPPLES_ENABLED":"", "cWindRippleTex":"", "cWindRippleTiling":"", "cWindRippleSpeed":"", "cWindRippleNormalIntensity":"", \
-        "cWindRippleMeshIntensity":"", "DisableReviveDistance":"", "cGlossinessFactor":"", "cOpacity":"",
-    }
-    materialCache: Dict[Tuple[Any,...], Material] = {}
-
-    def __init__(self):
-        self.textures: Dict[str, str] = {}
-        self.texture_enabled: Dict[str, bool] = {}
-        self.colors: Dict[str, List[float]] = {}
-        self.custom_properties: Dict[str, Any] = {}
-        self.name: str = "Unnamed Material"
-        self.node = None
-    @classmethod
-    def from_material_node(cls, material_node: ET.Element) -> Material:
-        instance = cls()
-        instance.name = get_text_and_delete(material_node, "Name", "Unnamed Material")
-        for texture_name, texture_enabled_flag in cls.texture_definitions.items():
-            texture_path = get_text_and_delete(material_node, texture_name)
-            instance.textures[texture_name] = texture_path
-            instance.texture_enabled[texture_name] = bool(int(get_text(material_node, texture_enabled_flag, "0")))
-        for color_name in cls.color_definitions:
-            color = [1.0, 1.0, 1.0]
-            color[0] = float(get_text_and_delete(material_node, color_name + ".r", 1.0))
-            color[1] = float(get_text_and_delete(material_node, color_name + ".g", 1.0))
-            color[2] = float(get_text_and_delete(material_node, color_name + ".b", 1.0))
-            instance.colors[color_name] = color
-        #for prop, default_value in cls.custom_property_default_value.items():
-            #value = string_to_fitting_type(get_text(material_node, prop, default_value))
-            #if value is not None:
-            #    instance.custom_properties[prop] = value
-        instance.node = material_node
-        return instance
-    
-    @classmethod
-    def from_filepaths(cls, name: str, diff_path: str, norm_path: str, metal_path: str) -> Material:
-        element = ET.fromstring(f"""
-            <Config>
-                <Name>{name}</Name>
-                <cModelDiffTex>{diff_path}</cModelDiffTex>
-                <cModelNormalTex>{metal_path}</cModelNormalTex>
-                <cModelMetallicTex>{metal_path}</cModelMetallicTex>
-            </Config>                        
-        """)
-        return cls.from_material_node(element)
-    
-    
-    @classmethod
-    def from_default(cls) -> Material:
-        element = ET.fromstring(f"""
-            <Config>
-                <Name>NEW_MATERIAL<Name>
-            </Config>                        
-        """)
-        return cls.from_material_node(element)
-         
-    @classmethod
-    def from_blender_material(cls, blender_material) -> Material:
-        instance = cls()
-        instance.node = blender_material.dynamic_properties.to_node(ET.Element("Material"))
-        instance.name = blender_material.name
-        for texture_name in cls.texture_definitions.keys():
-            shader_node = blender_material.node_tree.nodes[texture_name] #Assumes that the nodes collection allows this lookup
-            if not shader_node.image:
-                instance.textures[texture_name] = ""
-                instance.texture_enabled[texture_name] = shader_node.anno_properties.enabled
-                continue
-            filepath_full = os.path.realpath(bpy.path.abspath(shader_node.image.filepath, library=shader_node.image.library))
-            texture_path = to_data_path(filepath_full)
-            #Rename "data/.../some_diff_0.png" to "data/.../some_diff.psd"
-            extension = shader_node.anno_properties.original_file_extension
-            texture_path = Path(texture_path.as_posix().replace(instance.texture_quality_suffix()+".", ".")).with_suffix(extension)
-            instance.textures[texture_name] = texture_path.as_posix()
-            instance.texture_enabled[texture_name] = shader_node.anno_properties.enabled
-        for color_name in cls.color_definitions:
-            color = [1.0, 1.0, 1.0]
-            shader_node = blender_material.node_tree.nodes.get(color_name, None)
-            if shader_node:
-                inputs = shader_node.inputs
-                color = [inputs[0].default_value, inputs[1].default_value, inputs[2].default_value]
-            instance.colors[color_name] = color
-        for prop, default_value in cls.custom_property_default_value.items():
-            if prop not in blender_material:
-                if default_value:
-                    instance.custom_properties[prop] = default_value
-                continue
-            instance.custom_properties[prop] = blender_material[prop]
-        return instance
-    
-    def texture_quality_suffix(self):
-        return "_"+IO_AnnocfgPreferences.get_texture_quality()
-    
-    def to_xml_node(self, parent: ET.Element) -> ET.Element:
-        node = self.node
-        if not parent is None:
-            parent.append(node)
-        # node = ET.SubElement(parent, "Config")
-        #ET.SubElement(node, "ConfigType").text = "MATERIAL"
-        ET.SubElement(node, "Name").text = self.name
-        for texture_name in self.texture_definitions.keys():
-            texture_path = self.textures[texture_name]
-            if texture_path != "":
-                ET.SubElement(node, texture_name).text = texture_path
-        for color_name in self.color_definitions:
-            ET.SubElement(node, color_name + ".r").text = format_float(self.colors[color_name][0])
-            ET.SubElement(node, color_name + ".g").text = format_float(self.colors[color_name][1])
-            ET.SubElement(node, color_name + ".b").text = format_float(self.colors[color_name][2])
-        for texture_name, texture_enabled_flag in self.texture_definitions.items():
-            used_value = self.texture_enabled[texture_name]
-            find_or_create(node, texture_enabled_flag).text = str(int(used_value))
-        for prop, value in self.custom_properties.items():
-            if value == "":
-                continue
-            if type(value) == float:
-                value = format_float(value)
-            ET.SubElement(node, prop).text = str(value)
-        return node
-    
-    def convert_to_png(self, fullpath: Path) -> bool:
-        """Converts the .dds file to .png. Returns True if successful, False otherwise.
-
-        Args:
-            fullpath (str): .dds file
-
-        Returns:
-            bool: Successful
-        """
-        if not IO_AnnocfgPreferences.get_path_to_texconv().exists():
-            return False
-        if not fullpath.exists():
-            return False
-        try:
-            subprocess.call(f"\"{IO_AnnocfgPreferences.get_path_to_texconv()}\" -ft PNG -sepalpha -y -o \"{fullpath.parent}\" \"{fullpath}\"")
-        except:
-            return False
-        return fullpath.with_suffix(".png").exists()
-    
-    def get_texture(self, texture_path: Path):
-        """Tries to find the texture texture_path with ending "_0.png" (quality setting can be changed) in the list of loaded textures.
-        Otherwise loads it. If it is not existing but the corresponding .dds exists, converts it first.
-
-        Args:
-            texture_path (str): f.e. "data/.../texture_diffuse.psd"
-
-        Returns:
-            [type]: The texture or None.
-        """
-        if texture_path == Path(""):
-            return None
-        texture_path = Path(texture_path)
-        texture_path = Path(texture_path.parent, texture_path.stem + self.texture_quality_suffix()+".dds")
-        png_file = texture_path.with_suffix(".png")
-        image = bpy.data.images.get(str(png_file.name), None)
-        if image is not None:
-            return image
-        fullpath = data_path_to_absolute_path(texture_path)
-        png_fullpath = data_path_to_absolute_path(png_file)
-        if not png_fullpath.exists():
-            success = self.convert_to_png(fullpath)
-            if not success:
-                print("Failed to convert texture", fullpath)
-                return None
-        image = bpy.data.images.load(str(png_fullpath))
-        return image
-
-    
-
-    def get_material_cache_key(self):
-        attribute_list = tuple([self.name] + list(self.textures.items()) + list([(a, tuple(b)) for a, b in self.colors.items()]) + list(self.custom_properties.items()))
-        return hash(attribute_list)
-    
-    def create_anno_shader(self):
-        anno_shader = bpy.data.node_groups.new('AnnoShader', 'ShaderNodeTree')
-        
-        anno_shader.inputs.new("NodeSocketColor", "cDiffuse")
-        anno_shader.inputs.new("NodeSocketColor", "cDiffuseMultiplier")
-        anno_shader.inputs.new("NodeSocketFloat", "Alpha")
-        anno_shader.inputs.new("NodeSocketColor", "cNormal")
-        anno_shader.inputs.new("NodeSocketFloat", "Glossiness")
-        anno_shader.inputs.new("NodeSocketColor", "cMetallic")
-        anno_shader.inputs.new("NodeSocketColor", "cHeight")
-        anno_shader.inputs.new("NodeSocketColor", "cNightGlow")
-        anno_shader.inputs.new("NodeSocketColor", "cEmissiveColor")
-        anno_shader.inputs.new("NodeSocketFloat", "EmissionStrength")
-        anno_shader.inputs.new("NodeSocketColor", "cDyeMask")
-        
-        
-        anno_shader.outputs.new("NodeSocketShader", "Shader")
-        
-        inputs = self.add_shader_node(anno_shader, "NodeGroupInput", 
-                                        position = (0, 0), 
-                                    ).outputs
-        mix_c_diffuse = self.add_shader_node(anno_shader, "ShaderNodeMixRGB",
-                                        position = (1, 4),
-                                        default_inputs = {
-                                            0 : 1.0,
-                                        },
-                                        inputs = {
-                                            "Color1" : inputs["cDiffuseMultiplier"],
-                                            "Color2" : inputs["cDiffuse"],
-                                        },
-                                        blend_type = "MULTIPLY",
-                                    )
-        dye_mask = self.add_shader_node(anno_shader, "ShaderNodeRGBToBW",
-                                        position = (1, 3),
-                                        inputs = {
-                                            "Color" : inputs["cDyeMask"],
-                                        },
-                                    )
-        final_diffuse = self.add_shader_node(anno_shader, "ShaderNodeMixRGB",
-                                        position = (2, 3),
-                                        default_inputs = {
-                                            "Color2" : (1.0, 0.0, 0.0, 1.0),
-                                        },
-                                        inputs = {
-                                            "Fac" : dye_mask.outputs["Val"],
-                                            "Color1" : mix_c_diffuse.outputs["Color"],
-                                        },
-                                        blend_type = "MULTIPLY",
-                                    )
-        #Normals
-        separate_normal = self.add_shader_node(anno_shader, "ShaderNodeSeparateRGB",
-                                        position = (1, 2),
-                                        inputs = {
-                                            "Image" : inputs["cNormal"],
-                                        },
-                                    )
-        #Calc normal blue
-        square_x = self.add_shader_node(anno_shader, "ShaderNodeMath",
-                                        position = (2, 1.5),
-                                        operation = "POWER",
-                                        inputs = {
-                                            0 : separate_normal.outputs["R"],
-                                        },
-                                        default_inputs = {
-                                            1 : 2.0
-                                        },
-                                    )
-        square_y = self.add_shader_node(anno_shader, "ShaderNodeMath",
-                                        position = (2, 2.5),
-                                        operation = "POWER",
-                                        inputs = {
-                                            0 : separate_normal.outputs["G"],
-                                        },
-                                        default_inputs = {
-                                            1 : 2.0
-                                        },
-                                    )
-        add_squares = self.add_shader_node(anno_shader, "ShaderNodeMath",
-                                        position = (2.5, 2),
-                                        operation = "ADD",
-                                        inputs = {
-                                            0 : square_x.outputs["Value"],
-                                            1 : square_y.outputs["Value"],
-                                        },
-                                    )
-        inverted_add_squares = self.add_shader_node(anno_shader, "ShaderNodeMath",
-                                        position = (3, 2),
-                                        operation = "SUBTRACT",
-                                        inputs = {
-                                            1 : add_squares.outputs["Value"],
-                                        },
-                                        default_inputs = {
-                                            0 : 1.0
-                                        },
-                                    )
-        normal_blue = self.add_shader_node(anno_shader, "ShaderNodeMath",
-                                        position = (3.5, 2),
-                                        operation = "SQRT",
-                                        inputs = {
-                                            0 : inverted_add_squares.outputs["Value"],
-                                        },
-                                    )
-        
-        combine_normal = self.add_shader_node(anno_shader, "ShaderNodeCombineRGB",
-                                        position = (4, 2),
-                                        inputs = {
-                                            "R" : separate_normal.outputs["R"],
-                                            "G" : separate_normal.outputs["G"],
-                                            "B" : normal_blue.outputs["Value"],
-                                        },
-                                    )
-        normal_map = self.add_shader_node(anno_shader, "ShaderNodeNormalMap",
-                                        position = (5, 2),
-                                        default_inputs = {
-                                            0 : 0.5,
-                                        },
-                                        inputs = {
-                                            "Color" : combine_normal.outputs["Image"],
-                                        },
-                                    )
-        height_bw = self.add_shader_node(anno_shader, "ShaderNodeRGBToBW",
-                                        position = (5, 3),
-                                        inputs = {
-                                            "Color" : inputs["cHeight"],
-                                        },
-                                    )
-        bump_map = self.add_shader_node(anno_shader, "ShaderNodeBump",
-                                        position = (6, 2),
-                                        default_inputs = {
-                                            0 : 0.5,
-                                        },
-                                        inputs = {
-                                            "Height" : height_bw.outputs["Val"],
-                                            "Normal" : normal_map.outputs["Normal"],
-                                        },
-                                    )
-        #Roughness
-        roughness = self.add_shader_node(anno_shader, "ShaderNodeMath",
-                                position = (3, 0),
-                                operation = "SUBTRACT",
-                                inputs = {
-                                    1 : inputs["Glossiness"],
-                                },
-                                default_inputs = {
-                                    0 : 1.0
-                                },
-                            )
-        #Metallic
-        metallic = self.add_shader_node(anno_shader, "ShaderNodeRGBToBW",
-                                        position = (1, 3),
-                                        inputs = {
-                                            "Color" : inputs["cMetallic"],
-                                        },
-                                    )
-        #Emission
-        scaled_emissive_color = self.add_shader_node(anno_shader, "ShaderNodeVectorMath",         
-                            operation = "SCALE",
-                            name = "EmissionScale",
-                            position = (1, -1),
-                            default_inputs = {
-                                "Scale": 10,
-                            },
-                            inputs = {
-                                "Vector" : inputs["cEmissiveColor"],
-                            }
-        )
-        combined_emissive_color = self.add_shader_node(anno_shader, "ShaderNodeVectorMath",         
-                            operation = "MULTIPLY",
-                            position = (2, -1),
-                            inputs = {
-                                0 : final_diffuse.outputs["Color"],
-                                1 : scaled_emissive_color.outputs["Vector"],
-                            }
-        )
-        object_info = self.add_shader_node(anno_shader, "ShaderNodeObjectInfo",         
-                            position = (1, -2),
-        )
-        random_0_1 = self.add_shader_node(anno_shader, "ShaderNodeMath",  
-                            operation = "FRACT",   
-                            position = (2, -2),
-                            inputs = {
-                                "Value" : object_info.outputs["Location"],
-                            }
-        )
-        color_ramp_node = self.add_shader_node(anno_shader, "ShaderNodeValToRGB",  
-                            position = (3, -2),
-                            inputs = {
-                                "Fac" : random_0_1.outputs["Value"],
-                            }
-        )
-
-        color_ramp = color_ramp_node.color_ramp
-        color_ramp.elements[0].color = (1.0, 0.0, 0.0,1)
-        color_ramp.elements[1].position = (2.0/3.0)
-        color_ramp.elements[1].color = (0.0, 0.0, 1.0,1)
-        
-        color_ramp.elements.new(1.0/3.0)
-        color_ramp.elements[1].color = (0.0, 1.0, 0.0,1)
-        color_ramp.interpolation = "CONSTANT"
-        
-        location_masked_emission = self.add_shader_node(anno_shader, "ShaderNodeVectorMath",         
-                            operation = "MULTIPLY",
-                            position = (4, -2),
-                            inputs = {
-                                0 : color_ramp_node.outputs["Color"],
-                                1 : inputs["cNightGlow"],
-                            }
-        )
-        
-        final_emission_color = self.add_shader_node(anno_shader, "ShaderNodeMixRGB",         
-                            blend_type = "MIX",
-                            position = (5, -1),
-                            default_inputs = {
-                                "Color1" : (0.0, 0.0 ,0.0, 1.0)
-                            },
-                            inputs = {
-                                "Fac" : location_masked_emission.outputs["Vector"],
-                                "Color2" : combined_emissive_color.outputs["Vector"],
-                            }
-        )
-        
-        bsdf = self.add_shader_node(anno_shader, "ShaderNodeBsdfPrincipled", 
-                                        position = (4, 0), 
-                                        inputs = {
-                                            "Alpha" : inputs["Alpha"],
-                                            "Roughness" : roughness.outputs["Value"],
-                                            "Normal" : bump_map.outputs["Normal"],
-                                            "Base Color" : final_diffuse.outputs["Color"],
-                                            "Metallic" : metallic.outputs["Val"],
-                                            "Emission Strength" : inputs["EmissionStrength"],
-                                            "Emission" : final_emission_color.outputs["Color"],
-                                            
-                                            
-                                        },
-                                    )
-        outputs = self.add_shader_node(anno_shader, "NodeGroupOutput", 
-                                        position = (5, 0), 
-                                        inputs = {
-                                            "Shader" : bsdf.outputs["BSDF"]
-                                        },
-                                    )
-
-    
-    def add_anno_shader(self, nodes):
-        group = nodes.new(type='ShaderNodeGroup')
-        if not "AnnoShader" in bpy.data.node_groups:
-            self.create_anno_shader()            
-        group.node_tree = bpy.data.node_groups["AnnoShader"]
-        return group
-        
-    def as_blender_material(self):
-
-        if self.get_material_cache_key() in Material.materialCache:
-            return Material.materialCache[self.get_material_cache_key()]
-        
-        material = bpy.data.materials.new(name=self.name)
-        
-        material.dynamic_properties.from_node(self.node)
-        material.use_nodes = True
-        
-        positioning_unit = (300, 300)
-        positioning_offset = (0, 3 * positioning_unit[1])
-        
-        
-        for i, texture_name in enumerate(self.texture_definitions.keys()):
-            texture_node = material.node_tree.nodes.new('ShaderNodeTexImage')
-            texture_path = Path(self.textures[texture_name])
-            texture = self.get_texture(texture_path)
-            if texture is not None:
-                texture_node.image = texture
-                if "Norm" in texture_name or "Metal" in texture_name or "Height" in texture_name:
-                    texture_node.image.colorspace_settings.name = 'Non-Color'
-            texture_node.name = texture_name
-            texture_node.label = texture_name
-            texture_node.location.x -= 4 * positioning_unit[0] - positioning_offset[0]
-            texture_node.location.y -= i * positioning_unit[1] - positioning_offset[1]
-
-            texture_node.anno_properties.enabled = self.texture_enabled[texture_name]
-            extension = texture_path.suffix
-            if extension not in [".png", ".psd"]:
-                if texture_path != Path(""):
-                    print("Warning: Unsupported texture file extension", extension, texture_path)
-                extension = ".psd"
-            texture_node.anno_properties.original_file_extension = extension
-        
-        node_tree = material.node_tree
-        links = node_tree.links
-        nodes = node_tree.nodes
-        
-        anno_shader = self.add_anno_shader(nodes)
-        material.node_tree.nodes.remove(nodes["Principled BSDF"])
-        
-        emissive_color = self.add_shader_node(node_tree, "ShaderNodeCombineRGB",
-                            name = "cEmissiveColor",
-                            position = (3, 6.5),
-                            default_inputs = {
-                                "R": self.colors["cEmissiveColor"][0],
-                                "G": self.colors["cEmissiveColor"][1],
-                                "B": self.colors["cEmissiveColor"][2],
-                            },
-                            inputs = {}
-        )
-        c_diffuse_mult = self.add_shader_node(node_tree, "ShaderNodeCombineRGB",
-                            name = "cDiffuseColor",
-                            position = (2, 6.5),
-                            default_inputs = {
-                                "R": self.colors["cDiffuseColor"][0],
-                                "G": self.colors["cDiffuseColor"][1],
-                                "B": self.colors["cDiffuseColor"][2],
-                            },
-                            inputs = {}
-        )
-        
-        links.new(anno_shader.inputs["cDiffuse"], nodes[self.texture_names["diffuse"]].outputs[0])
-        links.new(anno_shader.inputs["cNormal"], nodes[self.texture_names["normal"]].outputs[0])
-        links.new(anno_shader.inputs["cMetallic"], nodes[self.texture_names["metallic"]].outputs[0])
-        links.new(anno_shader.inputs["cHeight"], nodes[self.texture_names["height"]].outputs[0])
-        links.new(anno_shader.inputs["cNightGlow"], nodes[self.texture_names["night_glow"]].outputs[0])
-        links.new(anno_shader.inputs["cDyeMask"], nodes[self.texture_names["dye"]].outputs[0])
-        
-        links.new(anno_shader.inputs["cDiffuseMultiplier"], c_diffuse_mult.outputs[0])
-        links.new(anno_shader.inputs["cEmissiveColor"], emissive_color.outputs[0])
-        
-        links.new(anno_shader.inputs["Alpha"], nodes[self.texture_names["diffuse"]].outputs["Alpha"])
-        links.new(anno_shader.inputs["Glossiness"], nodes[self.texture_names["normal"]].outputs["Alpha"])
-        
-        
-        links.new(nodes["Material Output"].inputs["Surface"], anno_shader.outputs["Shader"])
-        
-        
-        
-        material.blend_method = "CLIP"
-
-        
-        #Store all kinds of properties for export
-        for prop, value in self.custom_properties.items():
-            material[prop] = value
-
-
-        Material.materialCache[self.get_material_cache_key()] = material
-        return material
-    
-    def add_shader_node(self, node_tree, node_type, **kwargs):
-        node = node_tree.nodes.new(node_type)
-        positioning_unit = (300, 300)
-        positioning_offset = (0, 3 * positioning_unit[1])
-        x,y = kwargs.pop("position", (0,0))
-        node.location.x = x* positioning_unit[0] - positioning_offset[0]
-        node.location.y = y* positioning_unit[1] - positioning_offset[1]
-        if "name" in kwargs and not "label" in kwargs:
-            kwargs["label"] = kwargs["name"]
-        for input_key, default_value in kwargs.pop("default_inputs", {}).items():
-            node.inputs[input_key].default_value = default_value
-        for input_key, input_connector in kwargs.pop("inputs", {}).items():
-             node_tree.links.new(node.inputs[input_key], input_connector)
-        for attr, value in kwargs.items():
-            setattr(node, attr, value)
-        return node
-    
-    def add_shader_node_to_material(self, material, node_type, **kwargs):
-        nodes = material.node_tree
-        return self.add_shader_node(nodes, node_type, **kwargs)
-###################################################################################################################
-
-class ClothMaterial(Material):
-    texture_definitions = {
-        "cClothDiffuseTex":"DIFFUSE_ENABLED",
-        "cClothNormalTex":"NORMAL_ENABLED",
-        "cClothMetallicTex":"METALLIC_TEX_ENABLED",
-        "cSeparateAOTex":"SEPARATE_AO_TEXTURE",
-        "cHeightMap":"HEIGHT_MAP_ENABLED",
-        "cNightGlowMap":"NIGHT_GLOW_ENABLED", 
-        "cClothDyeMask":"DYE_MASK_ENABLED"
-    }
-    texture_names = {
-        "diffuse":"cClothDiffuseTex",
-        "normal":"cClothNormalTex",
-        "metallic":"cClothMetallicTex",
-        "ambient":"cSeparateAOTex",
-        "height":"cHeightMap",
-        "night_glow":"cNightGlowMap",
-        "dye":"cClothDyeMask",
-    }
-
-def is_type(T: type, s: str) -> bool:
-    try:
-        T(s)
-        return True
-    except:
-        return False
-
-def string_to_fitting_type(s: str):
-    if is_type(int, s) and s.isnumeric():
-        return int(s)
-    if is_type(float, s):
-        return float(s)
-    return s
-    
-def get_first_or_none(list):
-    if list:
-        return list[0]
-    return None
-
-
-def get_text(node: ET.Element, query: str, default_value = "") -> str:
-    if node.find(query) is None:
-        return str(default_value)
-    if node.find(query).text is None:
-        return str(default_value)
-    return node.find(query).text
-
-def get_text_and_delete(node: ET.Element, query: str, default_value = "") -> str:
-    if node.find(query) is None:
-        return str(default_value)
-    subnode = node.find(query)
-    parent = node
-    if "/" in query:
-        query = query.rsplit("/", maxsplit=1)[0]
-        parent = node.find(query)
-    parent.remove(subnode)
-    while len(list(parent)) == 0 and parent != node:
-        elements = query.rsplit("/", maxsplit=1)
-        query = elements[0]
-        parents_parent = node
-        if len(elements) > 1:
-            parents_parent = node.find(query)
-        parents_parent.remove(parent)
-        parent = parents_parent
-    if subnode.text is None:
-        return default_value
-    return subnode.text
-
-def format_float(value: Union[float, int]):
-    return "{:.6f}".format(value)
-
-def find_or_create(parent: ET.Element, simple_query: str) -> ET.Element:
-    """Finds or creates the subnode corresponding to the simple query.
-    
-
-    Args:
-        parent (ET.Element): root node
-        simple_query (str): Only supports queries like "Config[ConfigType="ORIENTATION_TRANSFORM"]/Position/x", no advanced xpath.
-
-    Returns:
-        ET.Element: The node.
-    """
-    parts = simple_query.split("/", maxsplit = 1)
-    query = parts[0]
-    queried_node = parent.find(query)
-    if queried_node is None:
-        tag = query.split("[")[0]
-        queried_node = ET.SubElement(parent, tag)
-        if "[" in query:
-            condition = query.split("[")[1].replace("]", "")
-            subnode_tag = condition.split("=")[0].strip()
-            subnode_value = condition.split("=")[1].strip().replace('"', '').replace("'", "")
-            ET.SubElement(queried_node, subnode_tag).text = subnode_value
-    if len(parts) > 1:
-        return find_or_create(queried_node, parts[1])
-    return queried_node
 
 def convert_to_glb(fullpath: Path):
     rdm4_path = IO_AnnocfgPreferences.get_path_to_rdm4()
@@ -1294,7 +71,7 @@ def convert_animation_to_glb(model_fullpath, animation_fullpath: Path):
 def import_animated_model_to_scene(model_data_path: Union[str, Path, None], animation_data_path) -> BlenderObject:
     print(model_data_path, animation_data_path)
     if not model_data_path or not animation_data_path:
-        print("invalid data path for animation or model")
+        print("Invalid data path for animation or model")
         return add_empty_to_scene()
     fullpath = data_path_to_absolute_path(animation_data_path)
     if fullpath is None:
@@ -1348,6 +125,9 @@ class AnnoObject(ABC):
     material_class = Material
     
     child_anno_object_types: Dict[str, type] = {}
+    #f.e. Animations->Type,  <Animations><A></A><A></A><A></A></Animations>
+    child_anno_object_types_without_container: Dict[str, type] = {}
+    #f.e. A->Type, <A></A><A></A><A></A>
     
 
     
@@ -1382,12 +162,22 @@ class AnnoObject(ABC):
         for subnode_name, subcls in cls.child_anno_object_types.items():
             subnodes = node.find(subnode_name)
             if subnodes is not None:
-                for subnode in list(subnodes):
+                for i, subnode in enumerate(list(subnodes)):
                     child_obj = subcls.xml_to_blender(subnode, obj)
+                    child_obj["import_index"] = i
                 node.remove(subnodes)
+        for subnode_name, subcls in cls.child_anno_object_types_without_container.items():
+            if subcls == AnimationSequences and not IO_AnnocfgPreferences.turn_sequences_into_blender_objects():
+                continue
+            subnodes = node.findall(subnode_name)
+            for i, subnode in enumerate(list(subnodes)):
+                child_obj = subcls.xml_to_blender(subnode, obj)
+                child_obj["import_index"] = i
+                node.remove(subnode)
         
     @classmethod
     def xml_to_blender(cls: Type[T], node: ET.Element, parent_object = None) -> BlenderObject:
+
         obj = cls.add_blender_object_to_scene(node)
         set_anno_object_class(obj, cls)
         obj.name = cls.blender_name_from_node(node)
@@ -1426,11 +216,15 @@ class AnnoObject(ABC):
             subcls = get_anno_object_class(child_obj)
             if subcls == NoAnnoObject:
                 continue
+            if subcls in cls.child_anno_object_types_without_container.values():
+                subnode =  subcls.blender_to_xml(child_obj, node, child_map)
+                continue
             if subcls not in container_name_by_subclass:
                 continue
             container_name = container_name_by_subclass[subcls]
             container_subnode = find_or_create(node, container_name)
             subnode = subcls.blender_to_xml(child_obj, container_subnode, child_map)
+        
 
     @classmethod
     def blender_to_xml(cls, obj: BlenderObject, parent_node: ET.Element, child_map: Dict[str, BlenderObject]) -> ET.Element:
@@ -1462,8 +256,11 @@ class AnnoObject(ABC):
                     material.to_xml_node(parent = materials_node)
                 
         cls.add_children_from_obj(obj, node, child_map) 
-
+        cls.blender_to_xml_finish(obj, node)
         return node
+    @classmethod
+    def blender_to_xml_finish(cls, obj, node):
+        return
     
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
@@ -1580,29 +377,122 @@ class Cloth(AnnoObject):
             return add_empty_to_scene()
         return imported_obj
 
+# Not really worth it to have this as its own object, I think. But maybe I'm wrong, so I'll leave it here.
+class TrackElement(AnnoObject):
+    has_transform = False
+    has_name = False
+    @classmethod
+    def node_to_property_node(self, node, obj):
+        node = super().node_to_property_node(node, obj)
+        model_id = int(get_text(node, "ModelID", "-1"))
+        main_file = obj.parent.parent.parent.parent
+        for o in main_file.children:
+            if get_anno_object_class(o) != Model:
+                continue
+            if o["import_index"] == model_id:
+                model_name = o.name
+                node.remove(node.find("ModelID"))
+                ET.SubElement(node, "BlenderModelID").text = model_name
+        particle_id = int(get_text(node, "ParticleID", "-1"))
+        for o in main_file.children:
+            if get_anno_object_class(o) != Particle:
+                continue
+            if o["import_index"] == particle_id:
+                particle_name = o.name
+                node.remove(node.find("ParticleID"))
+                ET.SubElement(node, "BlenderParticleID").text = particle_name
+        return node
+
+class Track(AnnoObject):
+    has_transform = False
+    has_name = False
+    # child_anno_object_types_without_container = {
+    #     "TrackElement" : TrackElement,
+    # }
+    @classmethod
+    def blender_name_from_node(cls, node):
+        track_id = int(get_text(node, "TrackID", ""))
+        name = "TRACK_"+ str(track_id)
+        return name
+    @classmethod
+    def node_to_property_node(self, node, obj):
+        for track_node in node.findall("TrackElement"):
+            model_id = int(get_text(track_node, "ModelID", "-1"))
+            main_file = obj.parent.parent.parent
+            for o in main_file.children:
+                if get_anno_object_class(o) != Model:
+                    continue
+                if o["import_index"] == model_id:
+                    model_name = o.name
+                    track_node.remove(track_node.find("ModelID"))
+                    ET.SubElement(track_node, "BlenderModelID").text = model_name
+            particle_id = int(get_text(track_node, "ParticleID", "-1"))
+            for o in main_file.children:
+                if get_anno_object_class(o) != Particle:
+                    continue
+                if o["import_index"] == particle_id:
+                    particle_name = o.name
+                    track_node.remove(track_node.find("ParticleID"))
+                    ET.SubElement(track_node, "BlenderParticleID").text = particle_name
+        return node
+    
+class AnimationSequence(AnnoObject):
+    has_transform = False
+    has_name = False
+    child_anno_object_types_without_container = {
+        "Track" : Track,
+    }
+    @classmethod
+    def blender_name_from_node(cls, node):
+        config_type = "SEQUENCE"
+        seq_id = int(get_text(node, "SequenceID", "-1"))
+        name = config_type + "_"+ feedback_enums.NAME_BY_SEQUENCE_ID.get(seq_id, str(seq_id))
+        return name
+
+
+class AnimationSequences(AnnoObject):
+    has_transform = False
+    has_name = False
+    child_anno_object_types_without_container = {
+        "Config" : AnimationSequence,
+    }
+    @classmethod
+    def blender_name_from_node(cls, node):
+        return "ANIMATION_SEQUENCES"
+
 
 class AnimationsNode(AnnoObject):
+    has_name = False
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         anim_obj = add_empty_to_scene()
-        model_file_name = get_text_and_delete(node, "FileName")
-        for anim_node in list(node):
-            ET.SubElement(anim_node, "ModelFileName").text = model_file_name
-            Animation.xml_to_blender(anim_node, anim_obj)
-        anim_obj.scale.x = -1
         return anim_obj
+    
+
 class Animation(AnnoObject):
+    has_name = False
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
+        controller_obj = add_empty_to_scene("ARROWS")
+        if IO_AnnocfgPreferences.mirror_models():
+            controller_obj.scale.x = -1
+        
         model_data_path = get_text_and_delete(node, "ModelFileName")
         anim_data_path = get_text(node, "FileName")
         imported_obj = import_animated_model_to_scene(model_data_path, anim_data_path)
         
-        if imported_obj is None:
-            return add_empty_to_scene()
-        
-        return imported_obj
-
+        if imported_obj is not None:
+            imported_obj.parent = controller_obj
+        return controller_obj
+    
+    @classmethod
+    def blender_name_from_node(cls, node):
+        config_type = "ANIMATION"
+        file_name = Path(get_text(node, "FileName", "")).stem
+        index = get_text(node, "AnimationIndex", "")
+        name = config_type + "_"+ index + "_" + file_name
+        return name
+    
 class Model(AnnoObject):
     has_transform = True
     transform_paths = {
@@ -1628,14 +518,31 @@ class Model(AnnoObject):
         imported_obj = import_model_to_scene(data_path)
         if imported_obj is None:
             return add_empty_to_scene()
-        
-        # Let's not always load the animations, might get a bit confusing...
-        # if node.find("Animations") is not None:
-        #     ET.SubElement(node.find("Animations"), "FileName").text = data_path
-        #     AnimationsNode.xml_to_blender(node.find("Animations"), imported_obj)
-        
         return imported_obj
     
+    @classmethod
+    def add_children_from_obj(cls, obj, node, child_map):
+        super().add_children_from_obj(obj, node, child_map)
+        if node.find("Animations") is not None:
+            return
+        #Animations may have been loaded.
+        for child_obj in child_map.get(obj.name, []):
+            subcls = get_anno_object_class(child_obj)
+            if subcls != AnimationsNode:
+                continue
+            animations_container = child_obj
+            animations_node = find_or_create(node, "Animations")
+            anim_nodes = []
+            for anim_obj in child_map.get(animations_container.name, []):
+                subcls = get_anno_object_class(anim_obj)
+                if subcls != Animation:
+                    continue
+                anim_node = Animation.blender_to_xml(anim_obj, None, child_map)
+                anim_nodes.append(anim_node)
+            anim_nodes.sort(key = lambda anim_node: int(get_text(anim_node, "AnimationIndex")))
+            for anim_node in anim_nodes:
+                anim_node.remove(anim_node.find("AnimationIndex"))
+                animations_node.append(anim_node)
 
 class SubFile(AnnoObject):
     has_transform = True
@@ -1733,7 +640,7 @@ class Prop(AnnoObject):
     
     prop_data_by_filename: Dict[str, Tuple[Optional[str], Optional[Material]]] = {} #avoids opening the same .prp file multiple times
     
-    prop_obj_blueprints = {} #used to copy mesh prop data 
+    prop_obj_blueprints: Dict[str, BlenderObject] = {} #used to copy mesh prop data 
     
     @classmethod
     def get_prop_data(cls, prop_filename: str) -> Tuple[Optional[str], Optional[Material]]:
@@ -1898,6 +805,7 @@ class IfoFile(AnnoObject):
             "UnevenBlocker":IfoPlane,
             "QuayArea":IfoPlane,
             "InvisibleQuayArea":IfoPlane,
+            "MeshHeightmap":IfoMeshHeightmap,
         }
         for child_node in list(node):
             ifo_cls = ifo_object_by_name.get(child_node.tag, None)
@@ -1991,10 +899,66 @@ class IfoPlane(AnnoObject):
             ET.SubElement(position_node, "zf").text = format_float(y)
         return node
 
+class IfoMeshHeightmap(AnnoObject):
+    has_transform = True
+    @classmethod
+    def add_blender_object_to_scene(cls, node) -> BlenderObject:
+        maxheight = float(get_text(node, "MaxHeight"))
+        startx = float(get_text(node, "StartPos/x"))
+        starty = float(get_text(node, "StartPos/y"))
+        stepx = float(get_text(node, "StepSize/x"))
+        stepy = float(get_text(node, "StepSize/y"))
+        width = int(get_text(node, "Heightmap/Width"))
+        height = int(get_text(node, "Heightmap/Height"))
+        heightdata = [float(s.text) for s in node.findall("Heightmap/Map/i")]
+        node.find("Heightmap").remove(node.find("Heightmap/Map"))
+        print(f"Heightmap w={width} x h={height} => {len(heightdata)}")
+        
+        mesh = bpy.data.meshes.new("MeshHeightmap")  # add the new mesh
+        obj = bpy.data.objects.new(mesh.name, mesh)
+        col = bpy.data.collections.get("Collection")
+        col.objects.link(obj)
+        bpy.context.view_layer.objects.active = obj
+        verts = []
+        i = 0
+        for a in range(height):
+            for b in range(width):
+                verts.append((startx + b * stepx, starty + a * stepy, heightdata[i]))
+                i += 1
+
+        mesh.from_pydata(verts, [], [])
+        for i, vert in enumerate(obj.data.vertices):
+            vert.co.y *= -1
+            
+        return obj
+
+    @classmethod 
+    def blender_to_xml(cls, obj, parent_node, child_map):
+        node = super().blender_to_xml(obj, parent_node, child_map)
+        map_node = ET.SubElement(node.find("Heightmap"), "Map")
+        for vert in obj.data.vertices:
+            z = vert.co.z
+            ET.SubElement(map_node, "i").text = format_float(z)
+        return node
+
 class Sequence(AnnoObject):
     has_transform = False
     has_name = False
-
+    
+    @classmethod
+    def node_to_property_node(self, node, obj):
+        node = super().node_to_property_node(node, obj)
+        seq_id = get_text_and_delete(node, "Id")
+        ET.SubElement(node, "SequenceID").text = seq_id
+        return node
+    
+    @classmethod
+    def property_node_to_node(self, property_node, obj):
+        node = super().property_node_to_node(property_node, obj)
+        seq_id = get_text_and_delete(node, "SequenceID")
+        ET.SubElement(node, "Id").text = seq_id
+        return node
+ 
 
 
 class Dummy(AnnoObject):
@@ -2017,7 +981,7 @@ class Dummy(AnnoObject):
         return file_obj
     @classmethod
     def default_node(cls: Type[T]):
-        node = super().default_node()
+        node = super().default_node() # type: ignore
         node.tag = "Dummy"
         ET.SubElement(node, "Name")
         ET.SubElement(node, "HeightAdaptationMode").text = "1"
@@ -2038,7 +1002,7 @@ class DummyGroup(AnnoObject):
     has_name = False
     @classmethod
     def default_node(cls: Type[T]):
-        node = super().default_node()
+        node = super().default_node() # type: ignore
         node.tag = "DummyGroup"
         ET.SubElement(node, "Name")
         return node
@@ -2079,7 +1043,7 @@ class FeedbackConfig(AnnoObject):
 
     @classmethod
     def default_node(cls: Type[T]):
-        node = super().default_node()
+        node = super().default_node() # type: ignore
         node.tag = "FeedbackConfig"
         ET.SubElement(node, "GUIDVariationList")
         ET.SubElement(node, "SequenceElements")
@@ -2360,6 +1324,9 @@ class Spline(AnnoObject):
         return node
  
 
+class NamedMockObject:
+    def __init__(self, name):
+        self.name = name
 
 class MainFile(AnnoObject):
     has_name = False
@@ -2373,10 +1340,43 @@ class MainFile(AnnoObject):
         "Lights" : Light,
         "Decals" : Decal,
     }   
+    child_anno_object_types_without_container = {
+        "Sequences" : AnimationSequences,
+    }
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         file_obj = add_empty_to_scene()  
         return file_obj
+    
+    @classmethod
+    def blender_to_xml_finish(cls, obj, node):
+        model_index_by_name = {}
+        for i, model_node in enumerate(node.findall("Models/Config")):
+            model_index_by_name[get_text(model_node, "Name")] = i
+        for track_element_node in node.findall("Sequences/Config/Track/TrackElement/BlenderModelID/.."):
+            blender_model_id_node = track_element_node.find("BlenderModelID")
+            blender_model_id = blender_model_id_node.text
+            model_name = Model.anno_name_from_blender_object(NamedMockObject(blender_model_id))
+            if model_name not in model_index_by_name:
+                print(f"Error: Could not resolve BlenderModelID {blender_model_id}: No model named {model_name}. Using model 0 instead.")
+            model_id = model_index_by_name.get(model_name, 0)
+            track_element_node.remove(blender_model_id_node)
+            ET.SubElement(track_element_node, "ModelID").text = str(model_id)
+        #particles
+        particle_index_by_name = {}
+        for i, particle_node in enumerate(node.findall("Particles/Config")):
+            particle_index_by_name[get_text(particle_node, "Name")] = i
+        for track_element_node in node.findall("Sequences/Config/Track/TrackElement/BlenderParticleID/.."):
+            blender_particle_id_node = track_element_node.find("BlenderParticleID")
+            blender_particle_id = blender_particle_id_node.text
+            particle_name = Particle.anno_name_from_blender_object(NamedMockObject(blender_particle_id))
+            if particle_name not in particle_index_by_name:
+                print(f"Error: Could not resolve BlenderParticleID {blender_particle_id}: No particle named {particle_name}. Using particle 0 instead.")
+            particle_id = particle_index_by_name.get(particle_name, 0)
+            track_element_node.remove(blender_particle_id_node)
+            ET.SubElement(track_element_node, "ParticleID").text = str(particle_id)
+            
+            
 
 class PropGridInstance:
     @classmethod
@@ -2659,8 +1659,8 @@ class GameObject:
         mesh_node = node.find("Mesh")
     
         location = [float(s) for s in get_text_and_delete(node, "Position", "0,0 0,0 0,0").replace(",", ".").split(" ")]
-        rotation = [1,0,0,0] 
-        scale    = [1,1,1]
+        rotation = [1.0, 0.0, 0.0, 0.0] 
+        scale    = [1.0, 1.0, 1.0]
         if mesh_node is not None:
             rotation = [float(s) for s in get_text_and_delete(mesh_node, "Orientation", "1,111 0,0 0,0 0,0").replace(",", ".").split(" ")]
             rotation = [rotation[3], rotation[0], rotation[1], rotation[2]] #xzyw -> wxzy
@@ -2771,9 +1771,11 @@ anno_object_classes = [
     NoAnnoObject, MainFile, Model, Cf7File,
     SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup,
     Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig,SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, Material, IfoFile, Spline, IslandFile, PropGridInstance,
-    IslandGamedataFile, GameObject, AnimationsNode, Animation
+    IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequences, AnimationSequence, Track, TrackElement, IfoMeshHeightmap,
 ]
 
+def str_to_class(classname):
+    return getattr(sys.modules[__name__], classname)
 
 def get_anno_object_class(obj) -> type:
     return str_to_class(obj.anno_object_class_str)
@@ -2781,42 +1783,18 @@ def get_anno_object_class(obj) -> type:
 def set_anno_object_class(obj, cls: type):
      obj.anno_object_class_str = cls.__name__
     
-classes = [
-    AnnoImageTextureProperties,
-    PT_AnnoImageTexture,
     
-    BoolPropertyGroup,
-    IntPropertyGroup,
-    StringPropertyGroup,
-    FloatPropertyGroup,
-    FilenamePropertyGroup,
-    ColorPropertyGroup,
-    FeedbackSequencePropertyGroup,
     
-    PT_AnnoScenePropertyPanel,
     
-    PT_AnnoMaterialObjectPropertyPanel,
-    ConvertCf7DummyToDummy,
-    LoadAnimations,
     
-    XMLPropertyGroup,
-    PT_AnnoObjectPropertyPanel,
-]
+
+    
 def register():
-    for cls in classes:
-        bpy.utils.register_class(cls)
-    bpy.types.ShaderNodeTexImage.anno_properties = bpy.props.PointerProperty(type=AnnoImageTextureProperties)
     bpy.types.Object.anno_object_class_str = bpy.props.EnumProperty(name="Anno Object Class", description = "Determines the type of the object.",
                                                                 items = [(cls.__name__, cls.__name__, cls.__name__) for cls in anno_object_classes]
                                                                 , default = "NoAnnoObject")
-    bpy.types.Object.dynamic_properties = bpy.props.PointerProperty(type = XMLPropertyGroup)
-    bpy.types.Material.dynamic_properties = bpy.props.PointerProperty(type = XMLPropertyGroup)
     #CollectionProperty(type = AnnoImageTextureProperties)
 
 def unregister():
-    del bpy.types.ShaderNodeTexImage.anno_properties
-    del bpy.types.Object.dynamic_properties
     del bpy.types.Object.anno_object_class_str
-    for cls in classes:
-        bpy.utils.unregister_class(cls)
 
