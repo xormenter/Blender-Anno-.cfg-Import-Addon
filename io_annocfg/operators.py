@@ -815,6 +815,60 @@ class ImportAllPropsOperator(Operator, ImportHelper):
         return {"FINISHED"}
 
 
+class ImportAllCfgsOperator(Operator, ImportHelper):
+    """Import all cfgs (located in the rda folder) into this file. Use this to create an asset library from this .blend file. """
+
+    bl_idname = "anno_cfgs_library.import_all"
+    bl_label = "Import All Anno Cfgs"
+    
+    filename_ext = "."
+    use_filter_folder = True
+    
+    def add_to_collection_recursively(self, obj, collection):
+        collection.objects.link(obj)
+        for child in obj.children:
+            self.add_to_collection_recursively(child, collection)
+    
+    def execute(self, context):
+        self.report({'INFO'}, f"Importing all cfgs from {self.filepath}...")
+        dirpath = Path(self.filepath)
+        rda_path = IO_AnnocfgPreferences.get_path_to_rda_folder()
+        if not dirpath.is_relative_to(rda_path):
+            self.report({'ERROR_INVALID_INPUT'}, f"Invalid folder. Needs to be inside your rda folder.")
+            return {"CANCELLED"}
+        if not dirpath.is_dir():
+            self.report({'ERROR_INVALID_INPUT'}, f"Invalid folder. Needs to be inside your rda folder.")
+            return {"CANCELLED"}
+        
+        i = 0
+        for p in dirpath.rglob('*.cfg'):
+            print(i, p)
+            i+=1
+            data_path = to_data_path(p).as_posix()
+            node = ET.fromstring(f"""
+                <Config>
+                    <ConfigType>FILE</ConfigType>
+                    <FileName>{data_path}</FileName>
+                    <AdaptTerrainHeight>1</AdaptTerrainHeight>
+                </Config>                  
+            """)
+            try:
+                blender_obj = SubFile.xml_to_blender(node)
+            except:
+                continue
+             
+            collection = bpy.context.blend_data.collections.new(name=p.name)
+            bpy.context.collection.children.link(collection)
+            self.add_to_collection_recursively(blender_obj, collection)
+            
+            collection.asset_mark()
+            collection.asset_data.tags.new("cfg")
+            for directory in PurePath(data_path).parts[:-1]:
+                if directory not in ["graphics", "data"]:
+                    collection.asset_data.tags.new(directory)
+            bpy.ops.ed.lib_id_generate_preview({"id": collection})
+        return {"FINISHED"}
+
 classes = (
     ExportAnnoCfg,
     ImportAnnoCfg,
@@ -823,6 +877,7 @@ classes = (
     ImportAnnoPropOperator,
     OBJECT_OT_add_anno_object,
     ImportAllPropsOperator,
+    ImportAllCfgsOperator,
     ImportAnnoIsland,
     ExportAnnoIsland,
     # ExportAnimatedAnnoModelOperator,
@@ -856,6 +911,9 @@ def menu_func_import_prop(self, context):
 def menu_func_import_all_props(self, context):
     self.layout.operator(ImportAllPropsOperator.bl_idname, text="Import Anno Prop Assets")
 
+def menu_func_import_all_cfgs(self, context):
+    self.layout.operator(ImportAllCfgsOperator.bl_idname, text="Import Anno Cfgs Assets")
+
 def menu_func_import_island(self, context):
     self.layout.operator(ImportAnnoIsland.bl_idname, text="Anno Island (.xml)")
 
@@ -882,6 +940,7 @@ def register():
     for func in import_funcs:
         bpy.types.TOPBAR_MT_file_import.append(func)
     bpy.types.TOPBAR_MT_file.append(menu_func_import_all_props)
+    bpy.types.TOPBAR_MT_file.append(menu_func_import_all_cfgs)
     for func in export_funcs:
         bpy.types.TOPBAR_MT_file_export.append(func)
 
@@ -894,6 +953,7 @@ def unregister():
     for func in import_funcs:
         bpy.types.TOPBAR_MT_file_import.remove(func)
     bpy.types.TOPBAR_MT_file.remove(menu_func_import_all_props)
+    bpy.types.TOPBAR_MT_file.remove(menu_func_import_all_cfgs)
     for func in export_funcs:
         bpy.types.TOPBAR_MT_file_export.remove(func)
         
