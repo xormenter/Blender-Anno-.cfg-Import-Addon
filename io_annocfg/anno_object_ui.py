@@ -15,7 +15,7 @@ from . import feedback_enums
 from .material import Material, ClothMaterial
 from .anno_objects import get_anno_object_class, set_anno_object_class, MainFile, Model, Cf7File, SubFile, Decal, Propcontainer, Prop, Particle, IfoPlane, Sequence, DummyGroup,\
     Cf7DummyGroup, Cf7Dummy, FeedbackConfig, SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, IfoFile, Spline, IslandFile, PropGridInstance, \
-    IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequence, AnimationSequences, Track, TrackElement, IfoMeshHeightmap
+    IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequence, AnimationSequences, Track, TrackElement, IfoMeshHeightmap, NoAnnoObject
 
 
 class BoolPropertyGroup(PropertyGroup):
@@ -410,6 +410,22 @@ def load_animations_for_model(obj):
                     for m_idx, material in enumerate(obj.data.materials):
                         anim_mesh.data.materials[m_idx] = material
 
+
+class MakeCollectionInstanceReal(Operator):
+    """Converts an instanced collection (imported from asset browser) into real objects."""
+    bl_idname = "object.make_hierarchical_collection_instance_real"
+    bl_label = "Make Collection Instance Real"
+
+    def execute(self, context):
+        bpy.ops.object.duplicates_make_real(use_base_parent=False, use_hierarchy=True)
+        return {'FINISHED'}
+    
+    @classmethod
+    def poll(cls, context):
+        if not context.active_object:
+            return False
+        return get_anno_object_class(context.active_object) == NoAnnoObject
+
 class LoadAnimations(Operator):
     """Loads all animations specified in the animations section of this model."""
     bl_idname = "object.load_animations"
@@ -647,12 +663,14 @@ class PT_AnnoObjectPropertyPanel(Panel):
             col.operator(LoadAllAnimations.bl_idname, text = "Load All Animations")
         if "AnimationSequence" == obj.anno_object_class_str:
             col.operator(ShowSequence.bl_idname, text = "Show Sequence")    
-            col.operator(ShowModel.bl_idname, text = "Show Model")    
-            
-        if "Dummy" == obj.anno_object_class_str:
-            col.operator(DuplicateDummy.bl_idname, text = "Duplicate Dummy (ID Increment)")
+            col.operator(ShowModel.bl_idname, text = "Show Model")   
+        if "NoAnnoObject" == obj.anno_object_class_str: 
+            col.operator(MakeCollectionInstanceReal.bl_idname, text = "Make Collection Instance Real")    
         else:
-            col.operator(DuplicateAnnoObject.bl_idname, text = "Duplicate Anno Object")
+            if "Dummy" == obj.anno_object_class_str:
+                col.operator(DuplicateDummy.bl_idname, text = "Duplicate Dummy (ID Increment)")
+            else:
+                col.operator(DuplicateAnnoObject.bl_idname, text = "Duplicate Anno Object")
         col.prop(obj, "parent")
         dyn = obj.dynamic_properties
         dyn.draw(col)
@@ -733,6 +751,7 @@ classes = [
     DuplicateDummy,
     ShowSequence,
     ShowModel,
+    MakeCollectionInstanceReal,
     
     XMLPropertyGroup,
     PT_AnnoObjectPropertyPanel,
