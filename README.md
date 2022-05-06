@@ -5,9 +5,9 @@ When used with the rdm4 converter and texconv, it will automatically convert .rd
 This means that if you have all those tools, you don't have to convert anything manually and can edit everything directly in Blender.
 
 # Requirements
-- Blender **3** https://www.blender.org/
-
-**If not using v.3.2+, you'll need to update the gltf importer addon manually!** (A required fix for a bug will only come with the blender 3.2 installer.) For this, download the *repository* (master branch) from https://github.com/KhronosGroup/glTF-Blender-IO and overwrite the `io_scene_gltf_2`addon folder in your blender installation with the `io_scene_gltf_2`folder found inside the `addons` folder of the downloaded repository. DO NOT download the most recent release of glTF-Blender-IO. The bugfix isn't released yet!
+- Blender **3(.2)** https://www.blender.org/
+**You can get Blender 3.2 Beta here: https://builder.blender.org/download/daily/**
+**If not using v.3.2+, you'll need to update the gltf importer addon manually!** (A required fix for a bug only comes with Blender 3.2) For this, download the *repository* (master branch) from https://github.com/KhronosGroup/glTF-Blender-IO and overwrite the `io_scene_gltf_2`addon folder in your blender installation with the `io_scene_gltf_2`folder found inside the `addons` folder of the downloaded repository. DO NOT download the most recent release of glTF-Blender-IO. The bugfix isn't released yet!
 
 For full functionality you need:
 - rdm4 converter https://github.com/lukts30/rdm4
@@ -89,8 +89,11 @@ If you want the animated models to be textured, select all of them (select hiera
 ## Setup 
 To set up  the prop asset library, create a fresh .blend file. Click the `File->Import Anno Prop Asset` button. The addon will now load *all* prop assets located somewhere in the selected folder (which needs to be somewhere inside your rda folder). This will take a long time (go for a walk, watch a movie, sleep). After that save this .blend file in a user-library directory. The default one is `C:\Users\<USERNAME>\Documents\Blender\Assets` (but you can add more in the blender preferences). Now every prop is marked as an asset and tagged with more or less useful tags. If you want, you can further categorize the props (I suggest to at least put everything into a "Props" category). Close this file.
 
-You might also want to have other objects in your asset browser. Unfortunately, the asset browser can only handle single objects, no hierarchies (at least for now). Therefore, only Models, Props, Lights, Particles, etc. but not Files are valid objects. 
+You might also want to have other objects in your asset browser. 
 If you want f.e. to use all the models you made somewhere in all your project files, just save all your .blend files in the same user-library directory and mark the models you want as assets. I'd suggest to add a duplicate of them that has no parent object as asset (to avoid confusion). So you can just extract all kinds of nice parts from the vanilla models, save them in your asset library and then use them whereever you want. 
+
+If you have **Blender 3.2+**, the asset browser supports collections. This allows the addon to automatically import .cfg files into your asset library. Use the "Import All Cfgs" operator found next to the corresponding operator for props to import them and also safe this file in your user-library directory.
+Note that when you drag a .cfg asset into your scene, it will be an *instanced collection*, i.e. looking great but totally useless for modding purposes. You'll have to make the instanced collection *real* first. You can either use `Object->Apply->Make Instances Real` (with the keep hierarchy setting active) or just use the button `Make Collection Instance Real`, located in the Anno Object tab. After that, you'll get a `File` object that you can parent to some other main file.
 
 ## Usage
 Now you can use this library in other .blend files. For this, open the asset browser and select the user library you used. Drag and drop the assets into your scene. **Important: You'll need to set the parent (propcontainer) for each prop you add, otherwise your props won't know where they belong and won't be exported!** If you add a lot of props, you might find it more convenient to first place all of them where you want, then hide the main object and all children (shift click on visibility), select all newly added props, and parent all of them to the propcontainer at the same time.
