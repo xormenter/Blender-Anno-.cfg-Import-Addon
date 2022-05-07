@@ -863,6 +863,7 @@ class ImportAllCfgsOperator(Operator, ImportHelper):
             
             collection.asset_mark()
             collection.asset_data.tags.new("cfg")
+            collection.asset_data.description = data_path
             for directory in PurePath(data_path).parts[:-1]:
                 if directory not in ["graphics", "data"]:
                     collection.asset_data.tags.new(directory)

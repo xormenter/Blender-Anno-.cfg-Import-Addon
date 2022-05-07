@@ -424,7 +424,41 @@ class MakeCollectionInstanceReal(Operator):
     def poll(cls, context):
         if not context.active_object:
             return False
-        return get_anno_object_class(context.active_object) == NoAnnoObject
+        return context.active_object.instance_collection is not None
+    
+class InstancedCollectionToSubFile(Operator):
+    """Converts an instanced collection (imported from asset browser) into a FILE_ object with the appropriate filepath."""
+    bl_idname = "object.instanced_collection_to_subfile"
+    bl_label = "Instanced Collection To SubFile"
+
+    def execute(self, context):
+        obj = bpy.context.active_object
+        obj.name = "FILE_" + obj.name
+        
+        set_anno_object_class(obj, SubFile)
+        data_path = obj.instance_collection.asset_data.description
+        node = ET.fromstring(f"""
+                <Config>
+                    <ConfigType>FILE</ConfigType>
+                    <FileName>{data_path}</FileName>
+                    <AdaptTerrainHeight>1</AdaptTerrainHeight>
+                </Config>
+        """)
+        obj.dynamic_properties.from_node(node)
+        return {'FINISHED'}
+    
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        if not obj:
+            return False
+        if get_anno_object_class(context.active_object) != NoAnnoObject:
+            return False
+        if obj.instance_collection is None:
+            return False
+        if obj.instance_collection.asset_data is None:
+            return False
+        return "data" in obj.instance_collection.asset_data.description
 
 class LoadAnimations(Operator):
     """Loads all animations specified in the animations section of this model."""
@@ -664,13 +698,14 @@ class PT_AnnoObjectPropertyPanel(Panel):
         if "AnimationSequence" == obj.anno_object_class_str:
             col.operator(ShowSequence.bl_idname, text = "Show Sequence")    
             col.operator(ShowModel.bl_idname, text = "Show Model")   
-        if "NoAnnoObject" == obj.anno_object_class_str: 
-            col.operator(MakeCollectionInstanceReal.bl_idname, text = "Make Collection Instance Real")    
-        else:
-            if "Dummy" == obj.anno_object_class_str:
-                col.operator(DuplicateDummy.bl_idname, text = "Duplicate Dummy (ID Increment)")
-            else:
-                col.operator(DuplicateAnnoObject.bl_idname, text = "Duplicate Anno Object")
+        if obj.instance_collection is not None: 
+            col.operator(MakeCollectionInstanceReal.bl_idname, text = "Make Collection Instance Real") 
+            col.operator(InstancedCollectionToSubFile.bl_idname, text = "Instanced Collection To FILE_")  
+        
+        if "Dummy" == obj.anno_object_class_str:
+            col.operator(DuplicateDummy.bl_idname, text = "Duplicate Dummy (ID Increment)")
+        elif not "NoAnnoObject" == obj.anno_object_class_str:
+            col.operator(DuplicateAnnoObject.bl_idname, text = "Duplicate Anno Object")
         col.prop(obj, "parent")
         dyn = obj.dynamic_properties
         dyn.draw(col)
@@ -752,6 +787,7 @@ classes = [
     ShowSequence,
     ShowModel,
     MakeCollectionInstanceReal,
+    InstancedCollectionToSubFile,
     
     XMLPropertyGroup,
     PT_AnnoObjectPropertyPanel,
