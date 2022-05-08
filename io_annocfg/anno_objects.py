@@ -619,7 +619,6 @@ class Decal(AnnoObject):
         for mat in materials:
             obj.data.materials.append(mat.as_blender_material())
  
- 
 class Prop(AnnoObject):
     has_transform = True
     transform_paths = {
@@ -890,13 +889,18 @@ class IfoPlane(AnnoObject):
     def blender_to_xml(cls, obj, parent_node, child_map):
         node = super().blender_to_xml(obj, parent_node, child_map)
         for vert in obj.data.vertices:
-            x = vert.co.x
+            coords = obj.matrix_local @ vert.co
+            x = coords.x
             if IO_AnnocfgPreferences.mirror_models():
                 x *= -1
-            y = -vert.co.y
+            y = -coords.y
             position_node = ET.SubElement(node, "Position")
+            if node.tag == "BuildBlocker":
+                x = float(round(x*2)) / 2
+                y = float(round(y*2)) / 2 
             ET.SubElement(position_node, "xf").text = format_float(x)
             ET.SubElement(position_node, "zf").text = format_float(y)
+                
         return node
 
 class IfoMeshHeightmap(AnnoObject):
