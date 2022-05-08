@@ -52,7 +52,7 @@ You can:
 - Change material texture files - but make sure that the texture path is a subpath of either the rda folder or your current mod directory, otherwise the addon cannot convert the path to a relative /data/graphics/... path. The same goes for FileNames of other objects. If you want to add new materials, you need to duplicate existing materials imported from .cfg files and use that one. Otherwise it will lack important xml entries and will not work in the game itself.
 - Add new props with the import prop functionality. For this, select the parent PropContainer first.
 - Add subfiles by importing another .cfg file while the MAIN_FILE is selected and using the option "import as subfile".
-- Regarding the .ifo objects: There are two types of ifo objects. Cubes and Planes. Cubes: Move them around, scale them, rotate them. Planes: Do not scale them! Enter into edit mode and manually position the vertices.
+- Regarding the .ifo objects: There are two types of ifo objects. Cubes and Planes. Cubes: Move them around, scale them, rotate them. Edit mode modifications do not work for these. IfoPlanes can be edited in edit mode (and object mode, if you want). This is because for planes, the individual vertex positions are important, for cubes its just about the boundaries.
 - If you want to add some assets from another .cfg file, simply import both. Then you change the parent to bring them into the other file.
 Tip: The .ifo and .cf7 objects might be distracting. If you shift click on the eye next to the IFOFILE or CF7FILE object in the scene tree view, you can hide them all.
 
