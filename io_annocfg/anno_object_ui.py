@@ -600,15 +600,16 @@ class ShowSequence(Operator):
                     if not get_anno_object_class(subfile_main_file_obj) == MainFile:
                         continue
                     self.show_sequences_in_subfiles(subfile_main_file_obj, selected_sequence_id)
-                    
-    def execute(self, context):
-        seq_obj = context.active_object
+    def _show_sequence(self, seq_obj):  
         seq_node = seq_obj.dynamic_properties.to_node(ET.Element("Config"))
         selected_sequence_id = get_text(seq_node, "SequenceID")
-        
         #self.show_sequence(seq_obj)
         main_file_obj = get_main_file_obj(seq_obj)
         self.show_sequences_in_subfiles(main_file_obj, selected_sequence_id)
+        
+    def execute(self, context):
+        seq_obj = context.active_object
+        self._show_sequence(seq_obj)
         return {'FINISHED'}
     
 class ShowModel(Operator):

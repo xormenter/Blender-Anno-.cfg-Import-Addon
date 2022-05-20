@@ -1441,6 +1441,7 @@ class PropGridInstance:
     def blender_to_xml(cls, obj):
         base_node = obj.dynamic_properties.to_node(ET.Element("None"))
         node = ET.Element("None")
+
         
         ET.SubElement(node, "FileName").text = get_text(base_node, "FileName")
         ET.SubElement(node, "Color").text = get_text(base_node, "Color", "1 1 1 1")
@@ -1570,6 +1571,7 @@ class IslandFile:
 
 
 class AssetsXML():
+    instance = None
     def __init__(self):
         self.path = Path(IO_AnnocfgPreferences.get_path_to_rda_folder(), Path("data/config/export/main/asset/assets.xml"))
         if not self.path.exists():
@@ -1581,8 +1583,28 @@ class AssetsXML():
         print("Assets.xml loaded.")
         
         self.cfg_cache = {}
+        self.assets_by_guid = {}
+        self.extract_assets(self.root)
+        print("Asset Dict completed")
+        
+    def extract_assets(self, node):
+        if node.tag != "Asset":
+            for c in list(node):
+                self.extract_assets(c)
+            return
+        guid_node = node.find("Values/Standard/GUID")
+        if guid_node is None:
+            return
+        self.assets_by_guid[guid_node.text] = node
+
+    @classmethod
+    def get_instance(cls):
+        if not cls.instance:
+            cls.instance = cls()
+        return cls.instance
         
     def get_asset(self, guid):
+        return self.assets_by_guid.get(str(guid), None)
         asset_node = self.root.find(f".//Asset/Values/Standard[GUID='{guid}']/../..")
         return asset_node
     

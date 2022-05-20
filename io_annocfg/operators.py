@@ -16,12 +16,13 @@ from datetime import datetime
 from pathlib import Path, PurePath
 from typing import Tuple, List, NewType, Any, Union, Dict, Optional, TypeVar, Type
 
+from . import feedback_enums
 from .simple_anno_feedback_encoding import SimpleAnnoFeedbackEncoding
 from .prefs import IO_AnnocfgPreferences
 from .anno_objects import get_anno_object_class, Transform, AnnoObject, MainFile, Model, SimpleAnnoFeedbackEncodingObject, \
     SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup, \
     Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig, Light, IfoFile, Cf7File, IslandFile, PropGridInstance, IslandGamedataFile, AssetsXML,\
-    Animation
+    Animation, Cloth
 
 
 from .utils import data_path_to_absolute_path, to_data_path
@@ -375,6 +376,18 @@ class ImportAnnoIsland(Operator, ImportHelper):
     def execute(self, context):
         self.path = Path(self.filepath)
         
+        # Extracting cfg for guid
+        # assetsXML = AssetsXML.get_instance()
+        # with open("C:/Users/Lars/AppData/Roaming/Blender Foundation/Blender/3.1/scripts/addons/io_annocfg/cfg_by_guid.txt", 'w') as f:
+        #     f.write('cfg_by_guid = {')  
+        #     for name, guid in feedback_enums.full_guids_by_name.items():
+        #         print(name, guid)
+        #         variation, fullname = assetsXML.get_variation_cfg_and_name(guid, 0)
+        #         print(variation)
+        #         f.write(f"\t{guid} : '{variation}',\n")
+        #     f.write('}')       
+        # return {'CANCELLED'}
+        
         if not self.path.suffix == ".xml" or not self.path.exists():
             self.report({'ERROR_INVALID_INPUT'}, f"Invalid file or extension")
             return {'CANCELLED'}
@@ -556,7 +569,7 @@ class ExportAnnoModelOperator(Operator, ExportHelper):
 
     def execute(self, context):
         self.obj = context.active_object
-        if not self.obj or not get_anno_object_class(self.obj) == Model:
+        if not self.obj or not get_anno_object_class(self.obj) in [Model, Cloth]:
             self.report({'ERROR_INVALID_CONTEXT'}, f"MODEL_ Object needs to be selected.")
             return {'CANCELLED'}
  
@@ -635,7 +648,7 @@ class ExportAnnoModelOperator(Operator, ExportHelper):
     def poll(cls, context):
         if not context.active_object:
             return False
-        return get_anno_object_class(context.active_object) == Model
+        return get_anno_object_class(context.active_object) in [Model, Cloth]
     
     def invoke(self, context, _event):
         import os

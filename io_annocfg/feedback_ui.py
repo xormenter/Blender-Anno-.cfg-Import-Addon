@@ -2,6 +2,9 @@ import bpy
 from bpy.props import StringProperty, IntProperty, CollectionProperty, PointerProperty, EnumProperty, FloatProperty, BoolProperty
 from bpy.types import PropertyGroup, UIList, Operator, Panel
 from . import feedback_enums
+from .utils import data_path_to_absolute_path, to_data_path, get_text
+import xml.etree.ElementTree as ET
+from . import anno_objects
 
 
 class FeedbackConfigItem(PropertyGroup):
@@ -262,6 +265,130 @@ class LIST_OT_DeleteItem(Operator):
         return{'FINISHED'}
 
 
+def load_sequence(obj, selected_sequence_id):
+    for anim_sequences in obj.children:
+        if not anno_objects.get_anno_object_class(anim_sequences) == anno_objects.AnimationSequences:
+            continue
+        for subfile_seq in anim_sequences.children:
+            if not anno_objects.get_anno_object_class(subfile_seq) == anno_objects.AnimationSequence:
+                continue
+            seq_node = subfile_seq.dynamic_properties.to_node(ET.Element("Config"))
+            sequence_id = int(get_text(seq_node, "SequenceID"))
+            sequence_id = feedback_enums.NAME_BY_SEQUENCE_ID.get(sequence_id, str(sequence_id))
+            if selected_sequence_id == sequence_id:
+                bpy.context.view_layer.objects.active = subfile_seq
+                print("Selecting Sequence", sequence_id)
+                bpy.ops.object.show_sequence()
+                return True
+    return f"Missing Sequence {selected_sequence_id} on {obj.name}"
+
+def update_feedback_unit(fcfg_obj):
+    unit_obj = fcfg_obj.feedback_unit
+    print(fcfg_obj.name, unit_obj.name)
+    if unit_obj is None:
+        return "No unit object"
+    unit_obj.scale = (5, 5, 5)
+    if fcfg_obj.feedback_config_item.StartDummyGroup:
+        unit_obj.parent = fcfg_obj.feedback_config_item.StartDummyGroup
+    feedback_sequence_list = fcfg_obj.feedback_sequence_list
+    index = fcfg_obj.feedback_sequence_list_index
+    sequence = None
+    for i, item in enumerate(feedback_sequence_list):
+        print(i," : ",  index)
+        if i > index:
+            break
+        if item.animation_type == "Walk":
+            unit_obj.parent = item.target_empty
+        sequence = item.sequence
+    if sequence is not None:
+        print("Sequence:" , sequence)
+        return load_sequence(unit_obj, sequence)
+    return "No sequence"
+   
+class FEEDBACK_OT_UpdateFeedbackUnit(Operator):
+    """Updates the feedback unit to the currently selected entry in the feedback sequence list. Can be used to visualize the feedback. No effect in game."""
+
+    bl_idname = "feedback_unit.update"
+    bl_label = "Updates the feedback unit to the currently selected entry in the feedback sequence list. Can be used to visualize the feedback. No effect in game."
+
+    def execute(self, context):
+        obj = context.active_object
+        
+        b = update_feedback_unit(obj)
+        if b != True:
+            self.report({"INFO"}, b)
+            
+        bpy.context.view_layer.objects.active = obj
+        
+        return{'FINISHED'}
+
+class FEEDBACK_OT_DeleteFeedbackUnit(Operator):
+    """Deletes the visual feedback unit (blender only)"""
+
+    bl_idname = "feedback_unit.delete"
+    bl_label = "Deletes the visual feedback unit (blender only)"
+    def delete_recursively(self, obj):
+        for o in obj.children:
+            self.delete_recursively(o)
+        bpy.data.objects.remove(obj, do_unlink=True)
+
+    def execute(self, context):
+        obj = context.active_object
+        
+        unit_obj = obj.feedback_unit
+        self.delete_recursively(unit_obj)
+        obj.feedback_unit = None
+        
+        return{'FINISHED'}
+    
+    
+class FEEDBACK_OT_LoadFeedbackUnit(Operator):
+    """Loads one of the GuidVariation cfgs. Can be used to visualize the feedback. No effect in game."""
+
+    bl_idname = "feedback_unit.load"
+    bl_label = "Loads one of the GuidVariation cfgs. Can be used to visualize the feedback. No effect in game."
+
+    def execute(self, context):
+        obj = context.active_object
+        guid_list = obj.feedback_guid_list
+        if len(guid_list) == 0:
+            return {'CANCELLED'}
+        item = guid_list[0]
+        name = item.guid
+        guid = feedback_enums.full_guids_by_name.get(name, name)
+        cfg = feedback_enums.cfg_by_guid[guid]
+        
+        unit_obj = self.import_cfg_file(data_path_to_absolute_path(cfg), "FeedbackUnit_"+name)
+        bpy.context.view_layer.objects.active = unit_obj
+        bpy.ops.object.load_all_animations()
+        # bpy.context.view_layer.objects.active = unit_obj
+        # bpy.ops.object.ShowSequence()
+        
+        obj.feedback_unit = unit_obj
+        
+        b = update_feedback_unit(obj)
+        if b != True:
+            self.report({"INFO"}, b)
+        
+        
+        bpy.context.view_layer.objects.active = obj
+        
+        return{'FINISHED'}
+    
+    def import_cfg_file(self, absolute_path, name): 
+        if not absolute_path.exists():
+            self.report({'INFO'}, f"Missing file: {absolute_path}")
+            return
+        tree = ET.parse(absolute_path)
+        root = tree.getroot()
+        if root is None:
+            return
+        
+        file_obj = anno_objects.MainFile.xml_to_blender(root)
+        file_obj.name = name
+        
+        return file_obj
+    
 class LIST_OT_NewItem(Operator):
     """Add a new item to the list."""
 
@@ -363,8 +490,18 @@ class PT_FeedbackConfig(Panel):
                 obj = getattr(context.active_object.feedback_config_item, key, None)
                 if obj is not None:
                     col.label(text = key+".Name: " + obj.dynamic_properties.get_string("Name"))
+        
         col = layout.row().box().column()
         col.label(text = "GUIDVariationList")
+        
+        if context.active_object.feedback_unit is None:
+            col.operator('feedback_unit.load', text='Load Feedback Unit')
+        else:
+            r = col.row()
+            r.operator('feedback_unit.update', text='Update Feedback Unit')
+            r.operator('feedback_unit.delete', text='Delete Feedback Unit')
+        col.prop(context.active_object, "feedback_unit", text="Feedback Visualization Unit")
+        
         col.template_list("FEEDBACK_GUID_UL_List", "feedback_guid_list", active_object,
                           "feedback_guid_list", active_object, "feedback_guid_list_index", rows = 1)
         row = col.row()
@@ -399,6 +536,9 @@ classes = [
     LIST_OT_MoveItem,
     PT_FeedbackConfig,
     LIST_OT_DuplicateItem,
+    FEEDBACK_OT_LoadFeedbackUnit,
+    FEEDBACK_OT_UpdateFeedbackUnit,
+    FEEDBACK_OT_DeleteFeedbackUnit,
 ]
 def register():
     for cls in classes:
@@ -414,6 +554,7 @@ def register():
     bpy.types.Object.feedback_guid_list_index = IntProperty(name = "Index for feedback_guid_list",
                                              default = 0)
     bpy.types.Object.feedback_config_item = bpy.props.PointerProperty(type=FeedbackConfigItem)
+    bpy.types.Object.feedback_unit = bpy.props.PointerProperty(type= bpy.types.Object, description = "Only used for visualization purposes in blender. No effect in game.")
 
 def unregister():
 
@@ -424,6 +565,7 @@ def unregister():
     del bpy.types.Object.feedback_guid_list_index
     
     del bpy.types.Object.feedback_config_item
+    del bpy.types.Object.feedback_unit
     
     for cls in classes:
         bpy.utils.unregister_class(cls)
