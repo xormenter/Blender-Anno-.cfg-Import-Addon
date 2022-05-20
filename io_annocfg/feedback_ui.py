@@ -5,6 +5,7 @@ from . import feedback_enums
 from .utils import data_path_to_absolute_path, to_data_path, get_text
 import xml.etree.ElementTree as ET
 from . import anno_objects
+import random
 
 
 class FeedbackConfigItem(PropertyGroup):
@@ -277,33 +278,35 @@ def load_sequence(obj, selected_sequence_id):
             sequence_id = feedback_enums.NAME_BY_SEQUENCE_ID.get(sequence_id, str(sequence_id))
             if selected_sequence_id == sequence_id:
                 bpy.context.view_layer.objects.active = subfile_seq
-                print("Selecting Sequence", sequence_id)
+                bpy.ops.object.show_model()
                 bpy.ops.object.show_sequence()
-                return True
-    return f"Missing Sequence {selected_sequence_id} on {obj.name}"
+                return {"INFO"}, "Successfully loaded {selected_sequence_id}."
+    return {"ERROR"}, f"Missing Sequence {selected_sequence_id} on {obj.name}"
 
 def update_feedback_unit(fcfg_obj):
     unit_obj = fcfg_obj.feedback_unit
-    print(fcfg_obj.name, unit_obj.name)
     if unit_obj is None:
-        return "No unit object"
+        return {"ERROR"}, "No unit object"
     unit_obj.scale = (5, 5, 5)
     if fcfg_obj.feedback_config_item.StartDummyGroup:
+        group = fcfg_obj.feedback_config_item.StartDummyGroup
+        if group.children and len(group.children) > 0:
+            child = random.choice(group.children)
+            unit_obj.parent = child
+    if fcfg_obj.feedback_config_item.DefaultStateDummy:
         unit_obj.parent = fcfg_obj.feedback_config_item.StartDummyGroup
     feedback_sequence_list = fcfg_obj.feedback_sequence_list
     index = fcfg_obj.feedback_sequence_list_index
     sequence = None
     for i, item in enumerate(feedback_sequence_list):
-        print(i," : ",  index)
         if i > index:
             break
         if item.animation_type == "Walk":
             unit_obj.parent = item.target_empty
         sequence = item.sequence
     if sequence is not None:
-        print("Sequence:" , sequence)
         return load_sequence(unit_obj, sequence)
-    return "No sequence"
+    return {"INFO"}, "No sequence"
    
 class FEEDBACK_OT_UpdateFeedbackUnit(Operator):
     """Updates the feedback unit to the currently selected entry in the feedback sequence list. Can be used to visualize the feedback. No effect in game."""
@@ -314,9 +317,8 @@ class FEEDBACK_OT_UpdateFeedbackUnit(Operator):
     def execute(self, context):
         obj = context.active_object
         
-        b = update_feedback_unit(obj)
-        if b != True:
-            self.report({"INFO"}, b)
+        c, b = update_feedback_unit(obj)
+        self.report(c, b)
             
         bpy.context.view_layer.objects.active = obj
         
@@ -353,7 +355,7 @@ class FEEDBACK_OT_LoadFeedbackUnit(Operator):
         guid_list = obj.feedback_guid_list
         if len(guid_list) == 0:
             return {'CANCELLED'}
-        item = guid_list[0]
+        item = guid_list[obj.feedback_guid_list_index]
         name = item.guid
         guid = feedback_enums.full_guids_by_name.get(name, name)
         cfg = feedback_enums.cfg_by_guid[guid]
@@ -366,9 +368,8 @@ class FEEDBACK_OT_LoadFeedbackUnit(Operator):
         
         obj.feedback_unit = unit_obj
         
-        b = update_feedback_unit(obj)
-        if b != True:
-            self.report({"INFO"}, b)
+        c, b = update_feedback_unit(obj)
+        self.report(c, b)
         
         
         bpy.context.view_layer.objects.active = obj

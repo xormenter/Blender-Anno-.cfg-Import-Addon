@@ -600,15 +600,25 @@ class ShowSequence(Operator):
                     if not get_anno_object_class(subfile_main_file_obj) == MainFile:
                         continue
                     self.show_sequences_in_subfiles(subfile_main_file_obj, selected_sequence_id)
+                    
+    def hide_animated_models(self, obj):
+        if get_anno_object_class(obj) != Model:
+            for c in obj.children:
+                self.hide_animated_models(c)
+        if len(obj.children) > 0:
+            self.set_hide_viewport_recursive(obj, True)
     def _show_sequence(self, seq_obj):  
         seq_node = seq_obj.dynamic_properties.to_node(ET.Element("Config"))
         selected_sequence_id = get_text(seq_node, "SequenceID")
         #self.show_sequence(seq_obj)
         main_file_obj = get_main_file_obj(seq_obj)
+        self.hide_animated_models(main_file_obj)
         self.show_sequences_in_subfiles(main_file_obj, selected_sequence_id)
         
     def execute(self, context):
         seq_obj = context.active_object
+        if not seq_obj:
+            seq_obj = bpy.context.view_layer.objects.active
         self._show_sequence(seq_obj)
         return {'FINISHED'}
     
@@ -649,7 +659,7 @@ class ShowModel(Operator):
                         continue
                     seq_node = subfile_seq.dynamic_properties.to_node(ET.Element("Config"))
                     sequence_id = get_text(seq_node, "SequenceID")
-                    if selected_sequence_id == sequence_id:
+                    if selected_sequence_id != sequence_id:
                         self.hide_sequence(subfile_seq)
             for file_obj in main_file_obj.children:
                 if not get_anno_object_class(file_obj) == SubFile:
@@ -660,6 +670,9 @@ class ShowModel(Operator):
                     self.hide_sequences_in_subfiles(subfile_main_file_obj, selected_sequence_id)
     def execute(self, context):
         seq_obj = context.active_object
+        if not seq_obj:
+            seq_obj = bpy.context.view_layer.objects.active
+        print(seq_obj)
         seq_node = seq_obj.dynamic_properties.to_node(ET.Element("Config"))
         selected_sequence_id = get_text(seq_node, "SequenceID")
         
