@@ -514,6 +514,8 @@ def load_animations_for_model(obj):
             for armature in anim_obj.children:
                 for anim_mesh in armature.children:
                     for m_idx, material in enumerate(obj.data.materials):
+                        if m_idx >= len(anim_mesh.data.materials):
+                            break
                         anim_mesh.data.materials[m_idx] = material 
             # Since f.e. walk animations are quite short, let's repeat everything so it looks decent.
             new_strip = transfer_action_to_nla_tracks(armature, strip_name='new_strip', start_frame=1)
