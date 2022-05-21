@@ -68,24 +68,23 @@ When you've imported a .cf7 file, you'll get a CF7FILE Object. In its properties
 You might have noticed that the import/export tools allow you to change from .cf7 to SimpleAnnoFeedbackEncoding. For this feature I integrated my feedback encoding (https://github.com/xormenter/Simple-Anno-Feedback-Encoding) directly into the blender editor. It offers a very simple and much more intuitive way to define feedback sequences. But a) its less powerful and b) sadly, you must write it all yourself. So I suggest using it when you want truely custom feedback. Otherwise, if you're just repositioning dummies, stick with .cf7.
 To use it:
 1. Select your MAIN_FILE object. 
-2. Then press `Shift-A`->Mesh->Add Anno Feedback Object. Select the type SimpleAnnoFeedbackObject. 
-3. Select that new object and add a DummyGroup. Give it a Name (in the property panel!)
-4. Under the DummyGroup, add Dummy Objects. (give it a name!) Note that if you duplicate a dummy/dummy group with Ctrl+D, the name in the property window will also be duplicated. You must change it to be unique! Or even better, use the "Duplicate Dummy" button. I'd also suggest that you name your dummies "dummy_group_name_1, dummy_group_name_2, ...".
-5. Add a FeedbackConfig to the SimpleAnnoFeedbackObject. In the properties panel, you can see a feedback category where you can edit the values, add GUID Variations and Sequence Elements. For a guid on what they do, have a look at the original simple anno feedback github page.
-6. Here's an example config that makes Santa walk between two dummies:
+2. Click the Add SimpleAnnoFeedback button in the Anno Object tab.
+3. Select that new object and add a DummyGroup. Give it a Name (in the anno object tab!) and click the fix name button to also rename the object in the outliner.
+4. Under the DummyGroup, add Dummy Objects. They'll be named after your group. This naming scheme is sometimes important, so make sure that you keep it this way. DO NOT duplicate dummies using `Ctrl+D`. ALWAYS use the "Duplicate Dummy" button in the anno object tab to get a new dummy. 
+5. Add a FeedbackConfig to the SimpleAnnoFeedbackObject. The easiest option is to select the DummyGroup first and click the button to create one from there. This will make sure it has a descriptive name. In the properties panel, you can see a feedback category where you can edit the values, add GUID Variations and Sequence Elements. (For the original guide on what they do, have a look at the original simple anno feedback github page.)
+6. Either select a dummy for the DefaultStateDummy or a dummy group for StartDummyGroup and MultiplyActorByDummyCount. To select one, you might want to click on the pick something icon and then select it in the outliner (instead of in the scene). This is much easier... You select a DefaultStateDummy if you want a unit doing things in one specific order (moving around) and a group if you want a bunch of units that all do the same thing albeit in different locations (one unit will spawn on each dummy of the group and they cannot move).
+8. Add a guid variation entry. For example we can choose Santa in the "Worker" category. You can add more than one, but keep in mind that not all units share the same set of animations (or do different things at the same animation), so be careful if you want something very specific.
+9. Add elements to the feedback sequence list. An element can be a `Walk` (moves the unit from its current location to the target dummy), or `(Timed)IdleAnimation` (play an animation x times, resp. x milliseconds). For configs with a StartDummyGroup, only IdleAnimation elements are valid.
+10. To figure out which animations you want to use, the addon can visualize your current feedback directly in blender (to some extend).There's an option to load the selected GUIDVariation as a feedback unit (purely for the visualization in blender, does not get exported) and update its animation and position to the currently selected dummy.
+  - You click the button to load the model + animations (takes quite some time) of the currently selected GUIDVariation. 
+  - The unit will spawn on the default state dummy. (or a random one if you're using a group)
+  - Then you can click on a feedback sequence entry and update the unit. It will teleport to the dummy it will be on when this animation is played in game and display the animation of the currently selected sequence element entry. Most importantly, it throws an error when your unit does not support this animation.
+12. Here's an example config that makes Santa walk between two dummies:
 ![Blender 08_01_2022 23_31_12](https://user-images.githubusercontent.com/94999291/148662128-756104d4-bf6d-4ce1-8b38-347f6136be44.png)
+14. Here's an example of the FeedbackUnit animation preview:
+![Untitled](https://user-images.githubusercontent.com/94999291/169657383-14e0fe62-ce2f-4687-bc27-554655b56b9c.jpg)
 
-7. Finally, when exporting the MAIN_FILE object, select the FeedbackType SimpleAnnnoFeedbackEncoding. It will write a .xml file, convert it to .cf7 and convert that to .fc. 
-
-Advanced: If you want the same kind of feedback unit on multiple locations doing the same thing, you can select a DummyGroup as StartDummyGroup (and MultiplyActorByDummyCount). This requires all dummies in the group to be named in the following fashion: groupname_0, groupname_1, and so on. Then add a IdleAnimation sequence element. 
-
-### Which animation sequence fits?
-Thankfully, Taludas went through the effort of recording all animations for all worker units. Have a look:
-- Old World Workers: https://www.youtube.com/watch?v=dhI8R6WP7-E
-- New World Workers: https://www.youtube.com/watch?v=7noO6grwhts
-
-With the newest versions, all models with animations can use the "Load Animation" button to automatically load all animations into blender. This makes it easy to see which one you want. Note: Quite a few animations don't get properly converted by the rdm4 converter, so be prepared to get a lot of empty animations. Also note that changes you make there will not be exported.
-If you want the animated models to be textured, select all of them (select hierarchy in outliner), then the textured model. Press `Ctrl+L`and link the materials. I'd also recommend to use select hierarchy + toggle visibility to only view one animation at a time. 
+15. **Important**, when exporting the MAIN_FILE object, select the FeedbackType `SimpleAnnnoFeedbackEncoding`. It will write a .xml file, convert it to .cf7 and convert that to .fc. If you export with the cf7 option selected, it will ignore your custom feedback...
 
 # Asset Library
 ## Setup 
