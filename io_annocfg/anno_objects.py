@@ -73,20 +73,27 @@ def import_animated_model_to_scene(model_data_path: Union[str, Path, None], anim
     if not model_data_path or not animation_data_path:
         print("Invalid data path for animation or model")
         return add_empty_to_scene()
+    model_fullpath = data_path_to_absolute_path(model_data_path)
     fullpath = data_path_to_absolute_path(animation_data_path)
     if fullpath is None:
         return None
-    out_fullpath = Path(fullpath.parent, Path("out.glb"))
-    if out_fullpath.exists():
-        out_fullpath.unlink()
-    if fullpath.exists():
-        convert_animation_to_glb(data_path_to_absolute_path(model_data_path), fullpath)
-    fullpath = out_fullpath
-    
-    if not fullpath.exists():
+    combined_path = Path(model_fullpath.parent, Path(model_fullpath.stem + "_a_"+Path(animation_data_path).stem + ".glb"))
+    if not combined_path.exists():
+            
+        out_fullpath = Path(fullpath.parent, Path("out.glb"))
+        if out_fullpath.exists():
+            out_fullpath.unlink()
+        if fullpath.exists():
+            convert_animation_to_glb(model_fullpath, fullpath)
+        if not out_fullpath.exists():
+            return None
+        out_fullpath.replace(combined_path)
+        print("Saved animation ", animation_data_path, " of model ", model_data_path, " to ", combined_path)
+    if not combined_path.exists():
+        print(f"Warning: Conversion of {animation_data_path} for model {model_data_path} failed.")
         #self.report({'INFO'}, f"Missing file: Cannot find glb model {data_path}.")
         return None
-    ret = bpy.ops.import_scene.gltf(filepath=str(fullpath))
+    ret = bpy.ops.import_scene.gltf(filepath=str(combined_path))
     obj = bpy.context.active_object
     print(obj.name, obj.type)
     return obj
@@ -143,7 +150,7 @@ class AnnoObject(ABC):
     
     @classmethod 
     def default_node(cls):
-        return ET.Element("EmptyNode")
+        return ET.Element(cls.__name__)
 
     @classmethod
     def from_default(cls: Type[T]) -> BlenderObject:
@@ -207,6 +214,13 @@ class AnnoObject(ABC):
         cls.add_children_from_xml(node, obj)
         node = cls.node_to_property_node(node, obj)
         obj.dynamic_properties.from_node(node)
+
+        for coll in obj.users_collection:
+            # Unlink the object
+            coll.objects.unlink(obj)
+
+        # Link each object to the target collection
+        bpy.context.scene.collection.objects.link(obj)
         return obj
     
     @classmethod

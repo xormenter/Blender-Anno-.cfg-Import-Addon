@@ -81,21 +81,36 @@ class FeedbackConfig():
 
     def extract_sequence(self):
         self.sequence_elements = []
+        if self.start_dummy_group != "":
+            #For more than one person, the only option seems to be this special element type 12. Format CDATA[4 * len(seq) seq]
+            #Example: <m_SequenceIds>CDATA[20 1000 1001 1040 1010 3000]</m_SequenceIds>
+            #We use the sequence_ids of ALL IdleSequences specified in here.
+            sequence_ids = []
+            for sequence_element_node in list(self.node.find("SequenceElements")):
+                if sequence_element_node.tag == "IdleAnimation":
+                    seq_id = get_sequence(get_required_text(sequence_element_node, 'm_IdleSequenceID'))
+                    sequence_ids.append(seq_id)
+            element = etree.Element("i")
+            etree.SubElement(element, "m_SequenceIds").text = f"CDATA[{4*len(sequence_ids)} {' '.join(sequence_ids)}]"
+            etree.SubElement(element, "hasValue").text = "1"
+            etree.SubElement(element, "elementType").text = "12"
+            etree.SubElement(element, "MinPlayCount").text = "1"
+            etree.SubElement(element, "MaxPlayCount").text = "2"
+            etree.SubElement(element, "MinPlayTime").text = "0"
+            etree.SubElement(element, "MaxPlayTime").text = "0"
+            self.sequence_elements.append(element)
+            return
         for sequence_element_node in list(self.node.find("SequenceElements")):
             element = etree.Element("i")
             etree.SubElement(element, "hasValue").text = "1"
             if sequence_element_node.tag == "IdleAnimation":
-                if self.start_dummy_group == "":
-                    
-                    etree.SubElement(element, "elementType").text = "1"
-                    etree.SubElement(element, "m_IdleSequenceID").text = get_sequence(get_required_text(sequence_element_node, "m_IdleSequenceID"))
-                    etree.SubElement(element, "ResetStartTime").text = "0"
-                else:
-                    #For more than one person, the only option seems to be this special element type 12. Format CDATA[4 * len(seq) seq]
-                    #Example: <m_SequenceIds>CDATA[20 1000 1001 1040 1010 3000]</m_SequenceIds>
-                    #For simplicity, we will use one single sequence.
-                    etree.SubElement(element, "elementType").text = "12"
-                    etree.SubElement(element, "m_SequenceIds").text = f"CDATA[4 {get_sequence(get_required_text(sequence_element_node, 'm_IdleSequenceID'))}]"
+                # if self.start_dummy_group == "":
+                etree.SubElement(element, "elementType").text = "1"
+                etree.SubElement(element, "m_IdleSequenceID").text = get_sequence(get_required_text(sequence_element_node, "m_IdleSequenceID"))
+                etree.SubElement(element, "ResetStartTime").text = "0"
+                # else:
+                #     etree.SubElement(element, "elementType").text = "12"
+                #     etree.SubElement(element, "m_SequenceIds").text = f"CDATA[4 {get_sequence(get_required_text(sequence_element_node, 'm_IdleSequenceID'))}]"
                 etree.SubElement(element, "MinPlayCount").text = get_required_text(sequence_element_node, "MinPlayCount")
                 etree.SubElement(element, "MaxPlayCount").text = get_required_text(sequence_element_node, "MaxPlayCount")
                 etree.SubElement(element, "MinPlayTime").text = "0"
