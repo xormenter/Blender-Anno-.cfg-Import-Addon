@@ -2,6 +2,10 @@ import bpy
 from bpy.props import StringProperty, IntProperty, CollectionProperty, PointerProperty, EnumProperty, FloatProperty, BoolProperty
 from bpy.types import PropertyGroup, UIList, Operator, Panel
 from . import feedback_enums
+from .utils import data_path_to_absolute_path, to_data_path, get_text
+import xml.etree.ElementTree as ET
+from . import anno_objects
+import random
 
 
 class FeedbackConfigItem(PropertyGroup):
@@ -50,7 +54,7 @@ class FeedbackConfigItem(PropertyGroup):
     )
     DefaultStateDummy: PointerProperty(name = "DefaultStateDummy", description = "Select a Dummy object", type = bpy.types.Object)# type: ignore
     StartDummyGroup: PointerProperty(name = "StartDummyGroup",  # type: ignore
-            description = "Select a Dummy object, used with multiply actor count to create a group of units that have the same animation at different locations. REQUIRES properly named dummies inside the dummy group. For a dummy group named 'group', name them 'group_0', 'group_1', and so on.",
+            description = "Select a Dummy object, used with multiply actor count to create a group of units that have the same animation (will use ALL given IdleAnimation sequences and ignore everything else) at different locations. REQUIRES properly named dummies inside the dummy group. For a dummy group named 'group', name them 'group_0', 'group_1', and so on.",
             type = bpy.types.Object
     ) 
 
@@ -186,16 +190,16 @@ class FEEDBACK_SEQUENCE_UL_List(UIList):
             row1 = split.row()
             row2 = split.box().grid_flow(row_major=True, columns=7, even_columns=False, even_rows=False, align=False)
             
-            row1.label(text = str(index))
+            row1.box().label(text = str(index))
             
             #ACTION
             # row2.label(text=item.animation_type, icon = "TOOL_SETTINGS")
             # row2.label(text=item.sequence, icon = "ARMATURE_DATA")
-            row2.prop(item, "animation_type", icon = "TOOL_SETTINGS")
-            row2.prop(item, "sequence", icon = "ARMATURE_DATA")
+            row2.prop(item, "animation_type", icon = "TOOL_SETTINGS", text = "")
+            row2.prop(item, "sequence", icon = "ARMATURE_DATA", text = "")
             
             if item.animation_type == "Walk":
-                row2.prop(item, "target_empty")
+                row2.prop(item, "target_empty", text = "Target")
                 if item.target_empty is not None:
                     row2.label(text = "(" + item.target_empty.dynamic_properties.get_string("Name")+ ")")
                 row2.prop(item, "speed_factor_f")
@@ -262,6 +266,161 @@ class LIST_OT_DeleteItem(Operator):
         return{'FINISHED'}
 
 
+def load_sequence(obj, selected_sequence_id):
+    for anim_sequences in obj.children:
+        if not anno_objects.get_anno_object_class(anim_sequences) == anno_objects.AnimationSequences:
+            continue
+        for subfile_seq in anim_sequences.children:
+            if not anno_objects.get_anno_object_class(subfile_seq) == anno_objects.AnimationSequence:
+                continue
+            seq_node = subfile_seq.dynamic_properties.to_node(ET.Element("Config"))
+            sequence_id = int(get_text(seq_node, "SequenceID"))
+            sequence_id = feedback_enums.NAME_BY_SEQUENCE_ID.get(sequence_id, str(sequence_id))
+            if selected_sequence_id == sequence_id:
+                bpy.context.view_layer.objects.active = subfile_seq
+                bpy.ops.object.show_model()
+                bpy.ops.object.show_sequence()
+                return {"INFO"}, f"Successfully loaded {selected_sequence_id}."
+    return {"ERROR"}, f"Missing Sequence {selected_sequence_id} on {obj.name}"
+
+def update_feedback_unit(fcfg_obj):
+    unit_obj = fcfg_obj.feedback_unit
+    if unit_obj is None:
+        return {"ERROR"}, "No unit object"
+    unit_obj.scale = (5, 5, 5)
+    if fcfg_obj.feedback_config_item.StartDummyGroup:
+        group = fcfg_obj.feedback_config_item.StartDummyGroup
+        if group.children and len(group.children) > 0:
+            child = random.choice(group.children)
+            unit_obj.parent = child
+    if fcfg_obj.feedback_config_item.DefaultStateDummy:
+        unit_obj.parent = fcfg_obj.feedback_config_item.DefaultStateDummy
+    feedback_sequence_list = fcfg_obj.feedback_sequence_list
+    index = fcfg_obj.feedback_sequence_list_index
+    sequence = None
+    for i, item in enumerate(feedback_sequence_list):
+        if i > index:
+            break
+        if item.animation_type == "Walk":
+            unit_obj.parent = item.target_empty
+        sequence = item.sequence
+    if sequence is not None:
+        return load_sequence(unit_obj, sequence)
+    return {"INFO"}, "No sequence"
+   
+class FEEDBACK_OT_UpdateFeedbackUnit(Operator):
+    """Updates the feedback unit to the currently selected entry in the feedback sequence list. Can be used to visualize the feedback. No effect in game."""
+
+    bl_idname = "feedback_unit.update"
+    bl_label = "Updates the feedback unit to the currently selected entry in the feedback sequence list. Can be used to visualize the feedback. No effect in game."
+
+    def execute(self, context):
+        obj = context.active_object
+        
+        c, b = update_feedback_unit(obj)
+        self.report(c, b)
+            
+        bpy.context.view_layer.objects.active = obj
+        
+        return{'FINISHED'}
+
+class FEEDBACK_OT_DeleteFeedbackUnit(Operator):
+    """Deletes the visual feedback unit (blender only)"""
+
+    bl_idname = "feedback_unit.delete"
+    bl_label = "Deletes the visual feedback unit (blender only)"
+    def delete_recursively(self, obj):
+        for o in obj.children:
+            self.delete_recursively(o)
+        bpy.data.objects.remove(obj, do_unlink=True)
+
+    def execute(self, context):
+        obj = context.active_object
+        
+        unit_obj = obj.feedback_unit
+        self.delete_recursively(unit_obj)
+        obj.feedback_unit = None
+        
+        return{'FINISHED'}
+    
+    
+class FEEDBACK_OT_LoadFeedbackUnit(Operator):
+    """Loads one of the GuidVariation cfgs. Can be used to visualize the feedback. No effect in game."""
+
+    bl_idname = "feedback_unit.load"
+    bl_label = "Loads one of the GuidVariation cfgs. Can be used to visualize the feedback. No effect in game."
+
+    def execute(self, context):
+        obj = context.active_object
+        guid_list = obj.feedback_guid_list
+        if len(guid_list) == 0:
+            return {'CANCELLED'}
+        item = guid_list[obj.feedback_guid_list_index]
+        name = item.guid
+        guid = feedback_enums.full_guids_by_name.get(name, name)
+        cfg = feedback_enums.cfg_by_guid[guid]
+        
+        unit_obj = self.import_cfg_file(data_path_to_absolute_path(cfg), "FeedbackUnit_"+name)
+        bpy.context.view_layer.objects.active = unit_obj
+        bpy.ops.object.load_all_animations()
+        # bpy.context.view_layer.objects.active = unit_obj
+        # bpy.ops.object.ShowSequence()
+        
+        obj.feedback_unit = unit_obj
+        
+        c, b = update_feedback_unit(obj)
+        self.report(c, b)
+        
+        
+        bpy.context.view_layer.objects.active = obj
+        
+        return{'FINISHED'}
+    
+    def import_cfg_file(self, absolute_path, name): 
+        if not absolute_path.exists():
+            self.report({'INFO'}, f"Missing file: {absolute_path}")
+            return
+        tree = ET.parse(absolute_path)
+        root = tree.getroot()
+        if root is None:
+            return
+        
+        file_obj = anno_objects.MainFile.xml_to_blender(root)
+        file_obj.name = name
+        
+        return file_obj
+    
+def get_dummy_index(dummy):
+    name = dummy.dynamic_properties.get_string("Name")
+    head = name.rstrip('0123456789')
+    tail = name[len(head):]
+    return int(tail)
+
+class AutogenerateWalkSequence(Operator):
+    """Uses the parent dummy group of the default state dummy to create a walk sequence."""
+    bl_idname = "object.autogenerate_walk_sequence"
+    bl_label = "Generate Walk Sequence From DefaultDummy"
+    def execute(self, context):
+        obj = context.active_object
+        feedback_sequence_list = obj.feedback_sequence_list
+        default_start_dummy = obj.feedback_config_item.DefaultStateDummy
+        if not default_start_dummy or default_start_dummy.anno_object_class_str != "Dummy":
+            self.report({"ERROR"}, "Select a DefaultStateDummy first")
+            return {'CANCELLED'}
+        group = default_start_dummy.parent
+        if not group:
+            self.report({"ERROR"}, f"Dummy {default_start_dummy.name} missing parent group.")
+            return {"CANCELLED"}
+        sorted_children = sorted(list(group.children), key = lambda obj: get_dummy_index(obj))
+        for dummy in sorted_children[1:]:
+            feedback_sequence_list.add()
+            index = len(feedback_sequence_list)-1
+            item = feedback_sequence_list[index]
+            item.animation_type = "Walk"
+            item.sequence = "walk01"
+            item.target_empty = dummy
+        return {'FINISHED'}
+    
 class LIST_OT_NewItem(Operator):
     """Add a new item to the list."""
 
@@ -325,11 +484,27 @@ class LIST_OT_MoveItem(Operator):
  #https://b3d.interplanety.org/en/multiline-text-in-blender-interface-panels/
 def _label_multiline(context, text, parent):
     import textwrap
-    chars = int(context.region.width / 7)
+    chars = int(context.region.width / 6.2)
     wrapper = textwrap.TextWrapper(width=chars)
     text_lines = wrapper.wrap(text=text)
     for text_line in text_lines:
         parent.label(text=text_line)
+
+def available_animations(unit_obj):
+    if unit_obj is None:
+        return ["UNKNOWN (Load Feedback Unit First)"]
+    sequences = []
+    for anim_sequences in unit_obj.children:
+        if not anno_objects.get_anno_object_class(anim_sequences) == anno_objects.AnimationSequences:
+            continue
+        for subfile_seq in anim_sequences.children:
+            if not anno_objects.get_anno_object_class(subfile_seq) == anno_objects.AnimationSequence:
+                continue
+            seq_node = subfile_seq.dynamic_properties.to_node(ET.Element("Config"))
+            sequence_id = int(get_text(seq_node, "SequenceID"))
+            sequence_id = feedback_enums.NAME_BY_SEQUENCE_ID.get(sequence_id, str(sequence_id))
+            sequences.append(sequence_id)
+    return sorted(sequences)
 
 class PT_FeedbackConfig(Panel):
     """Demo panel for UI list Tutorial."""
@@ -363,8 +538,18 @@ class PT_FeedbackConfig(Panel):
                 obj = getattr(context.active_object.feedback_config_item, key, None)
                 if obj is not None:
                     col.label(text = key+".Name: " + obj.dynamic_properties.get_string("Name"))
+        
         col = layout.row().box().column()
         col.label(text = "GUIDVariationList")
+        
+        if context.active_object.feedback_unit is None:
+            col.operator('feedback_unit.load', text='Load Feedback Unit')
+        else:
+            r = col.row()
+            r.operator('feedback_unit.update', text='Update Feedback Unit')
+            r.operator('feedback_unit.delete', text='Delete Feedback Unit')
+        col.prop(context.active_object, "feedback_unit", text="Feedback Visualization Unit")
+        
         col.template_list("FEEDBACK_GUID_UL_List", "feedback_guid_list", active_object,
                           "feedback_guid_list", active_object, "feedback_guid_list_index", rows = 1)
         row = col.row()
@@ -372,8 +557,19 @@ class PT_FeedbackConfig(Panel):
         row.operator('feedback_guid_list.delete_item', text='Remove')
         
         feedback_sequence_box = layout.box()
+        header = feedback_sequence_box.row()
+        header.label(text = "FeedbackSequence")
+        header.prop(active_object, "show_available_sequences")
+        available_sequences = "Valid Sequences: " + ", ".join(available_animations(active_object.feedback_unit))
+        if active_object.show_available_sequences:
+            _label_multiline(
+                context=context,
+                text=available_sequences,
+                parent=feedback_sequence_box.box()
+            )
+        if len(active_object.feedback_sequence_list) == 0:
+            feedback_sequence_box.row().operator(AutogenerateWalkSequence.bl_idname, text='Generate Walk Sequence')
         
-        feedback_sequence_box.label(text = "FeedbackSequence")
         row = feedback_sequence_box.row()
         row.template_list("FEEDBACK_SEQUENCE_UL_List", "feedback_sequence_list", active_object,
                           "feedback_sequence_list", active_object, "feedback_sequence_list_index")
@@ -399,6 +595,10 @@ classes = [
     LIST_OT_MoveItem,
     PT_FeedbackConfig,
     LIST_OT_DuplicateItem,
+    FEEDBACK_OT_LoadFeedbackUnit,
+    FEEDBACK_OT_UpdateFeedbackUnit,
+    FEEDBACK_OT_DeleteFeedbackUnit,
+    AutogenerateWalkSequence,
 ]
 def register():
     for cls in classes:
@@ -413,7 +613,11 @@ def register():
     bpy.types.Object.feedback_guid_list = CollectionProperty(type = GUIDVariationListItem)
     bpy.types.Object.feedback_guid_list_index = IntProperty(name = "Index for feedback_guid_list",
                                              default = 0)
+    
+    bpy.types.Object.show_available_sequences = BoolProperty(name = "Show Available Sequences",
+                                             default = False, description = "Shows the sequences available to the currently loaded feedback unit.")
     bpy.types.Object.feedback_config_item = bpy.props.PointerProperty(type=FeedbackConfigItem)
+    bpy.types.Object.feedback_unit = bpy.props.PointerProperty(type= bpy.types.Object, description = "Only used for visualization purposes in blender. No effect in game.")
 
 def unregister():
 
@@ -423,7 +627,10 @@ def unregister():
     del bpy.types.Object.feedback_guid_list
     del bpy.types.Object.feedback_guid_list_index
     
+    del bpy.types.Object.show_available_sequences
+    
     del bpy.types.Object.feedback_config_item
+    del bpy.types.Object.feedback_unit
     
     for cls in classes:
         bpy.utils.unregister_class(cls)

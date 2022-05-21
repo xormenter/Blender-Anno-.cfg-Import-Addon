@@ -73,20 +73,27 @@ def import_animated_model_to_scene(model_data_path: Union[str, Path, None], anim
     if not model_data_path or not animation_data_path:
         print("Invalid data path for animation or model")
         return add_empty_to_scene()
+    model_fullpath = data_path_to_absolute_path(model_data_path)
     fullpath = data_path_to_absolute_path(animation_data_path)
     if fullpath is None:
         return None
-    out_fullpath = Path(fullpath.parent, Path("out.glb"))
-    if out_fullpath.exists():
-        out_fullpath.unlink()
-    if fullpath.exists():
-        convert_animation_to_glb(data_path_to_absolute_path(model_data_path), fullpath)
-    fullpath = out_fullpath
-    
-    if not fullpath.exists():
+    combined_path = Path(model_fullpath.parent, Path(model_fullpath.stem + "_a_"+Path(animation_data_path).stem + ".glb"))
+    if not combined_path.exists():
+            
+        out_fullpath = Path(fullpath.parent, Path("out.glb"))
+        if out_fullpath.exists():
+            out_fullpath.unlink()
+        if fullpath.exists():
+            convert_animation_to_glb(model_fullpath, fullpath)
+        if not out_fullpath.exists():
+            return None
+        out_fullpath.replace(combined_path)
+        print("Saved animation ", animation_data_path, " of model ", model_data_path, " to ", combined_path)
+    if not combined_path.exists():
+        print(f"Warning: Conversion of {animation_data_path} for model {model_data_path} failed.")
         #self.report({'INFO'}, f"Missing file: Cannot find glb model {data_path}.")
         return None
-    ret = bpy.ops.import_scene.gltf(filepath=str(fullpath))
+    ret = bpy.ops.import_scene.gltf(filepath=str(combined_path))
     obj = bpy.context.active_object
     print(obj.name, obj.type)
     return obj
@@ -143,7 +150,7 @@ class AnnoObject(ABC):
     
     @classmethod 
     def default_node(cls):
-        return ET.Element("EmptyNode")
+        return ET.Element(cls.__name__)
 
     @classmethod
     def from_default(cls: Type[T]) -> BlenderObject:
@@ -207,6 +214,13 @@ class AnnoObject(ABC):
         cls.add_children_from_xml(node, obj)
         node = cls.node_to_property_node(node, obj)
         obj.dynamic_properties.from_node(node)
+
+        for coll in obj.users_collection:
+            # Unlink the object
+            coll.objects.unlink(obj)
+
+        # Link each object to the target collection
+        bpy.context.scene.collection.objects.link(obj)
         return obj
     
     @classmethod
@@ -1441,6 +1455,7 @@ class PropGridInstance:
     def blender_to_xml(cls, obj):
         base_node = obj.dynamic_properties.to_node(ET.Element("None"))
         node = ET.Element("None")
+
         
         ET.SubElement(node, "FileName").text = get_text(base_node, "FileName")
         ET.SubElement(node, "Color").text = get_text(base_node, "Color", "1 1 1 1")
@@ -1570,6 +1585,7 @@ class IslandFile:
 
 
 class AssetsXML():
+    instance = None
     def __init__(self):
         self.path = Path(IO_AnnocfgPreferences.get_path_to_rda_folder(), Path("data/config/export/main/asset/assets.xml"))
         if not self.path.exists():
@@ -1581,8 +1597,28 @@ class AssetsXML():
         print("Assets.xml loaded.")
         
         self.cfg_cache = {}
+        self.assets_by_guid = {}
+        self.extract_assets(self.root)
+        print("Asset Dict completed")
+        
+    def extract_assets(self, node):
+        if node.tag != "Asset":
+            for c in list(node):
+                self.extract_assets(c)
+            return
+        guid_node = node.find("Values/Standard/GUID")
+        if guid_node is None:
+            return
+        self.assets_by_guid[guid_node.text] = node
+
+    @classmethod
+    def get_instance(cls):
+        if not cls.instance:
+            cls.instance = cls()
+        return cls.instance
         
     def get_asset(self, guid):
+        return self.assets_by_guid.get(str(guid), None)
         asset_node = self.root.find(f".//Asset/Values/Standard[GUID='{guid}']/../..")
         return asset_node
     

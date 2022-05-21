@@ -19,7 +19,7 @@
 bl_info = {
     "name": "Annocfg ImportExport",
     "author": "xormenter",
-    "version": (2, 9, 2),
+    "version": (3, 0, 0),
     "blender": (3, 1, 0),
     "location": "File > Import > Anno (.cfg)",
     "description": "Allows importing and exporting configuration files for Anno 1800 3d models.",
@@ -33,9 +33,10 @@ import os
 
 from . import operators
 from . import prefs
-from . import feedback_ui
+
 from . import anno_objects
 from . import anno_object_ui
+from . import feedback_ui
 
 # =========================================================================
 # Registration:

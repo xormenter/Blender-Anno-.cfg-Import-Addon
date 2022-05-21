@@ -15,7 +15,7 @@ from . import feedback_enums
 from .material import Material, ClothMaterial
 from .anno_objects import get_anno_object_class, set_anno_object_class, MainFile, Model, Cf7File, SubFile, Decal, Propcontainer, Prop, Particle, IfoPlane, Sequence, DummyGroup,\
     Cf7DummyGroup, Cf7Dummy, FeedbackConfig, SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, IfoFile, Spline, IslandFile, PropGridInstance, \
-    IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequence, AnimationSequences, Track, TrackElement, IfoMeshHeightmap, NoAnnoObject
+    IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequence, AnimationSequences, Track, TrackElement, IfoMeshHeightmap, NoAnnoObject, Dummy
 
 
 class BoolPropertyGroup(PropertyGroup):
@@ -387,7 +387,113 @@ class DuplicateDummy(Operator):
         name = head + tail
         duplicate.dynamic_properties.set("Name", name, replace = True)
         duplicate.name = "Dummy_" + name
+        obj.select_set(False)
+        duplicate.select_set(True)
+        bpy.context.view_layer.objects.active = duplicate
         return {'FINISHED'}
+    
+
+class AddFeedbackDummy(Operator):
+    """Adds a properly named dummy to the group."""
+    bl_idname = "object.add_feedback_dummy"
+    bl_label = "Add Dummy"
+
+    def execute(self, context):
+        obj = context.active_object
+        index = 0
+        for dummy in obj.children:
+            name = dummy.dynamic_properties.get_string("Name")
+            head = name.rstrip('0123456789')
+            tail = name[len(head):]
+            index = int(tail)+1
+        group_name = obj.dynamic_properties.get_string("Name")
+        node = ET.fromstring(f"""
+                <Dummy>
+                    <Name>{group_name}_{index}</Name>
+                    <HeightAdaptationMode>1</HeightAdaptationMode>
+                </Dummy>                  
+        """)
+        dummy_obj = Dummy.xml_to_blender(node)
+        dummy_obj.parent = obj
+        dummy_obj.scale = (0.1, 0.1, 0.1)
+        bpy.context.view_layer.objects.active = dummy_obj
+        return {'FINISHED'}
+
+class AddFeedbackGroup(Operator):
+    """Adds a dummy group."""
+    bl_idname = "object.add_feedback_group"
+    bl_label = "Add Group"
+    def execute(self, context):
+        obj = context.active_object
+        node = ET.fromstring(f"""
+                <DummyGroup>
+                    <Name>NewGroup</Name>
+                </DummyGroup>                  
+        """)
+        dummy_obj = DummyGroup.xml_to_blender(node)
+        dummy_obj.parent = obj
+        bpy.context.view_layer.objects.active = dummy_obj
+        return {'FINISHED'}
+    
+class AddSimpleAnnoFeedback(Operator):
+    """Adds a simple anno feedback object"""
+    bl_idname = "object.add_simple_anno_feedback"
+    bl_label = "Adds a simple anno feedback object"
+    def execute(self, context):
+        obj = context.active_object
+        o = SimpleAnnoFeedbackEncodingObject().from_default()
+        o.parent = obj
+        bpy.context.view_layer.objects.active = o
+        return {'FINISHED'}
+    
+class AddFeedbackConfig(Operator):
+    """Adds a feedback config."""
+    bl_idname = "object.add_feedback_config"
+    bl_label = "Add Feedback Config"
+    def execute(self, context):
+        obj = context.active_object
+        feedback_obj = FeedbackConfig.from_default()
+        feedback_obj.parent = obj
+        bpy.context.view_layer.objects.active = feedback_obj
+        return {'FINISHED'}
+
+class AddFeedbackConfigFromGroup(Operator):
+    """Adds a feedback config."""
+    bl_idname = "object.add_feedback_config_from_group"
+    bl_label = "Add Feedback Config"
+    def execute(self, context):
+        group = context.active_object
+        obj = context.active_object.parent
+        if obj is None:
+            return {"CANCELLED"}
+        feedback_obj = FeedbackConfig.from_default()
+        feedback_obj.parent = obj
+        bpy.context.view_layer.objects.active = feedback_obj
+        feedback_obj.name = feedback_obj.name + group.name.replace("DummyGroup_", "")
+        return {'FINISHED'}
+class FixDummyName(Operator):
+    """Names the blender object after the Name entry."""
+    bl_idname = "object.fix_dummy_name"
+    bl_label = "Names the blender object after the Name entry."
+    
+    def execute(self, context):
+        obj = context.active_object
+        name = obj.dynamic_properties.get_string("Name")
+        obj.name = obj.anno_object_class_str +"_"+ name
+        return {'FINISHED'}
+
+
+#https://devtalk.blender.org/t/how-to-repeat-a-cyclic-animation-of-an-object-armature-from-command-line-with-blender-api/15523/6
+def transfer_action_to_nla_tracks(obj, strip_name='new_strip', start_frame=1):
+
+    new_track = obj.animation_data.nla_tracks.new()
+    new_strip = new_track.strips.new(strip_name, start_frame, obj.animation_data.action.copy())
+
+    bpy.data.actions.remove(obj.animation_data.action, do_unlink=True)
+
+    return new_strip
+def repeat_strip_from_command_line(strip, n_repetitions):
+    strip.repeat = n_repetitions
 
 
 def load_animations_for_model(obj):
@@ -408,7 +514,13 @@ def load_animations_for_model(obj):
             for armature in anim_obj.children:
                 for anim_mesh in armature.children:
                     for m_idx, material in enumerate(obj.data.materials):
-                        anim_mesh.data.materials[m_idx] = material
+                        if m_idx >= len(anim_mesh.data.materials):
+                            break
+                        anim_mesh.data.materials[m_idx] = material 
+            # Since f.e. walk animations are quite short, let's repeat everything so it looks decent.
+            new_strip = transfer_action_to_nla_tracks(armature, strip_name='new_strip', start_frame=1)
+            repeat_strip_from_command_line(new_strip, 500)
+    
 
 
 class MakeCollectionInstanceReal(Operator):
@@ -547,6 +659,7 @@ class DuplicateAnnoObject(Operator):
         self.fix_object_references(dup)
         main_obj.select_set(False)
         dup.select_set(True)
+        bpy.context.view_layer.objects.active = dup
         return {'FINISHED'}
  
     
@@ -601,14 +714,26 @@ class ShowSequence(Operator):
                         continue
                     self.show_sequences_in_subfiles(subfile_main_file_obj, selected_sequence_id)
                     
-    def execute(self, context):
-        seq_obj = context.active_object
+    def hide_animated_models(self, obj):
+        if get_anno_object_class(obj) != Model:
+            for c in obj.children:
+                self.hide_animated_models(c)
+            return
+        if len(obj.children) > 0:
+            self.set_hide_viewport_recursive(obj, True)
+    def _show_sequence(self, seq_obj):  
         seq_node = seq_obj.dynamic_properties.to_node(ET.Element("Config"))
         selected_sequence_id = get_text(seq_node, "SequenceID")
-        
         #self.show_sequence(seq_obj)
         main_file_obj = get_main_file_obj(seq_obj)
+        self.hide_animated_models(main_file_obj)
         self.show_sequences_in_subfiles(main_file_obj, selected_sequence_id)
+        
+    def execute(self, context):
+        seq_obj = context.active_object
+        if not seq_obj:
+            seq_obj = bpy.context.view_layer.objects.active
+        self._show_sequence(seq_obj)
         return {'FINISHED'}
     
 class ShowModel(Operator):
@@ -648,7 +773,7 @@ class ShowModel(Operator):
                         continue
                     seq_node = subfile_seq.dynamic_properties.to_node(ET.Element("Config"))
                     sequence_id = get_text(seq_node, "SequenceID")
-                    if selected_sequence_id == sequence_id:
+                    if selected_sequence_id != sequence_id:
                         self.hide_sequence(subfile_seq)
             for file_obj in main_file_obj.children:
                 if not get_anno_object_class(file_obj) == SubFile:
@@ -659,6 +784,9 @@ class ShowModel(Operator):
                     self.hide_sequences_in_subfiles(subfile_main_file_obj, selected_sequence_id)
     def execute(self, context):
         seq_obj = context.active_object
+        if not seq_obj:
+            seq_obj = bpy.context.view_layer.objects.active
+        print(seq_obj)
         seq_node = seq_obj.dynamic_properties.to_node(ET.Element("Config"))
         selected_sequence_id = get_text(seq_node, "SequenceID")
         
@@ -695,15 +823,24 @@ class PT_AnnoObjectPropertyPanel(Panel):
             col.operator(LoadAnimations.bl_idname, text = "Load Animations")
         if "MainFile" == obj.anno_object_class_str:
             col.operator(LoadAllAnimations.bl_idname, text = "Load All Animations")
+            col.operator(AddSimpleAnnoFeedback.bl_idname, text = "Add SimpleAnnoFeedbackEncoding")
         if "AnimationSequence" == obj.anno_object_class_str:
             col.operator(ShowSequence.bl_idname, text = "Show Sequence")    
             col.operator(ShowModel.bl_idname, text = "Show Model")   
         if obj.instance_collection is not None: 
             col.operator(MakeCollectionInstanceReal.bl_idname, text = "Make Collection Instance Real") 
             col.operator(InstancedCollectionToSubFile.bl_idname, text = "Instanced Collection To FILE_")  
-        
+
         if "Dummy" == obj.anno_object_class_str:
             col.operator(DuplicateDummy.bl_idname, text = "Duplicate Dummy (ID Increment)")
+        if "DummyGroup" == obj.anno_object_class_str:
+            col.operator(AddFeedbackDummy.bl_idname, text = "Add Dummy")
+            col.operator(AddFeedbackConfigFromGroup.bl_idname, text = "Add Feedback Config (to Parent)")
+        if "SimpleAnnoFeedbackEncodingObject" == obj.anno_object_class_str:
+            col.operator(AddFeedbackGroup.bl_idname, text = "Add Dummy Group")
+            col.operator(AddFeedbackConfig.bl_idname, text = "Add Feedback Config")
+        if obj.anno_object_class_str in ["Dummy", "DummyGroup"]:
+            col.operator(FixDummyName.bl_idname, text = "Fix Dummy Name")
         elif not "NoAnnoObject" == obj.anno_object_class_str:
             col.operator(DuplicateAnnoObject.bl_idname, text = "Duplicate Anno Object")
         col.prop(obj, "parent")
@@ -791,6 +928,13 @@ classes = [
     
     XMLPropertyGroup,
     PT_AnnoObjectPropertyPanel,
+    
+    AddFeedbackGroup,
+    FixDummyName,
+    AddFeedbackDummy,
+    AddFeedbackConfig,
+    AddSimpleAnnoFeedback,
+    AddFeedbackConfigFromGroup,
 ]
 def register():
     for cls in classes:
