@@ -79,12 +79,10 @@ To use it:
   - You click the button to load the model + animations (takes quite some time) of the currently selected GUIDVariation. 
   - The unit will spawn on the default state dummy. (or a random one if you're using a group)
   - Then you can click on a feedback sequence entry and update the unit. It will teleport to the dummy it will be on when this animation is played in game and display the animation of the currently selected sequence element entry. Most importantly, it throws an error when your unit does not support this animation.
-12. Here's an example config that makes Santa walk between two dummies:
-![Blender 08_01_2022 23_31_12](https://user-images.githubusercontent.com/94999291/148662128-756104d4-bf6d-4ce1-8b38-347f6136be44.png)
-14. Here's an example of the FeedbackUnit animation preview:
+11. Here's an example of the FeedbackUnit animation preview:
 ![Untitled](https://user-images.githubusercontent.com/94999291/169657383-14e0fe62-ce2f-4687-bc27-554655b56b9c.jpg)
 
-15. **Important**, when exporting the MAIN_FILE object, select the FeedbackType `SimpleAnnnoFeedbackEncoding`. It will write a .xml file, convert it to .cf7 and convert that to .fc. If you export with the cf7 option selected, it will ignore your custom feedback...
+12. **Important**, when exporting the MAIN_FILE object, select the FeedbackType `SimpleAnnnoFeedbackEncoding`. It will write a .xml file, convert it to .cf7 and convert that to .fc. If you export with the cf7 option selected, it will ignore your custom feedback...
 
 # Asset Library
 ## Setup 
