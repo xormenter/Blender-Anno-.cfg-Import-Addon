@@ -89,7 +89,7 @@ class Material:
             <Config>
                 <Name>{name}</Name>
                 <cModelDiffTex>{diff_path}</cModelDiffTex>
-                <cModelNormalTex>{metal_path}</cModelNormalTex>
+                <cModelNormalTex>{norm_path}</cModelNormalTex>
                 <cModelMetallicTex>{metal_path}</cModelMetallicTex>
             </Config>                        
         """)
