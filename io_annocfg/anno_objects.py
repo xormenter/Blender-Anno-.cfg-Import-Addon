@@ -813,6 +813,7 @@ class IfoFile(AnnoObject):
             "IntersectBox":IfoCube,
             "Dummy":IfoCube,
             "BuildBlocker":IfoPlane,
+            "WaterBlocker":IfoPlane,
             "FeedbackBlocker":IfoPlane,
             "PriorityFeedbackBlocker":IfoPlane,
             "UnevenBlocker":IfoPlane,
