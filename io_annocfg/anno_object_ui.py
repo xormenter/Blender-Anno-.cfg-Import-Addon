@@ -833,6 +833,7 @@ class PT_AnnoObjectPropertyPanel(Panel):
 
         if "Dummy" == obj.anno_object_class_str:
             col.operator(DuplicateDummy.bl_idname, text = "Duplicate Dummy (ID Increment)")
+            
         if "DummyGroup" == obj.anno_object_class_str:
             col.operator(AddFeedbackDummy.bl_idname, text = "Add Dummy")
             col.operator(AddFeedbackConfigFromGroup.bl_idname, text = "Add Feedback Config (to Parent)")
@@ -843,9 +844,13 @@ class PT_AnnoObjectPropertyPanel(Panel):
             col.operator(FixDummyName.bl_idname, text = "Fix Dummy Name")
         elif not "NoAnnoObject" == obj.anno_object_class_str:
             col.operator(DuplicateAnnoObject.bl_idname, text = "Duplicate Anno Object")
+
         col.prop(obj, "parent")
+
         dyn = obj.dynamic_properties
         dyn.draw(col)
+        if "Dummy" == obj.anno_object_class_str:
+            col.prop(obj, "dummy_add_idle_in_walk_sequence")
 
 class PT_AnnoMaterialObjectPropertyPanel(Panel):
     bl_label = "Anno Material"

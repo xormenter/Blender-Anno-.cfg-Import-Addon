@@ -412,13 +412,20 @@ class AutogenerateWalkSequence(Operator):
             self.report({"ERROR"}, f"Dummy {default_start_dummy.name} missing parent group.")
             return {"CANCELLED"}
         sorted_children = sorted(list(group.children), key = lambda obj: get_dummy_index(obj))
-        for dummy in sorted_children[1:]:
-            feedback_sequence_list.add()
-            index = len(feedback_sequence_list)-1
-            item = feedback_sequence_list[index]
-            item.animation_type = "Walk"
-            item.sequence = "walk01"
-            item.target_empty = dummy
+        for i,dummy in enumerate(sorted_children):
+            if i != 0:
+                feedback_sequence_list.add()
+                index = len(feedback_sequence_list)-1
+                item = feedback_sequence_list[index]
+                item.animation_type = "Walk"
+                item.sequence = "walk01"
+                item.target_empty = dummy
+            if dummy.dummy_add_idle_in_walk_sequence == True:
+                feedback_sequence_list.add()
+                index = len(feedback_sequence_list)-1
+                item = feedback_sequence_list[index]
+                item.animation_type = "IdleAnimation"
+                item.sequence = "idle01"
         return {'FINISHED'}
     
 class LIST_OT_NewItem(Operator):
@@ -613,7 +620,8 @@ def register():
     bpy.types.Object.feedback_guid_list = CollectionProperty(type = GUIDVariationListItem)
     bpy.types.Object.feedback_guid_list_index = IntProperty(name = "Index for feedback_guid_list",
                                              default = 0)
-    
+    bpy.types.Object.dummy_add_idle_in_walk_sequence = BoolProperty(name = "Add idle when auto generating walk sequence",
+                                             default = False)
     bpy.types.Object.show_available_sequences = BoolProperty(name = "Show Available Sequences",
                                              default = False, description = "Shows the sequences available to the currently loaded feedback unit.")
     bpy.types.Object.feedback_config_item = bpy.props.PointerProperty(type=FeedbackConfigItem)
@@ -626,6 +634,8 @@ def unregister():
     
     del bpy.types.Object.feedback_guid_list
     del bpy.types.Object.feedback_guid_list_index
+    
+    del bpy.types.Object.dummy_add_idle_in_walk_sequence
     
     del bpy.types.Object.show_available_sequences
     
