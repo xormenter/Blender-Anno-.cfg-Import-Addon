@@ -517,9 +517,9 @@ def load_animations_for_model(obj):
                         if m_idx >= len(anim_mesh.data.materials):
                             break
                         anim_mesh.data.materials[m_idx] = material 
-            # Since f.e. walk animations are quite short, let's repeat everything so it looks decent.
-            new_strip = transfer_action_to_nla_tracks(armature, strip_name='new_strip', start_frame=1)
-            repeat_strip_from_command_line(new_strip, 500)
+                # Since f.e. walk animations are quite short, let's repeat everything so it looks decent.
+                new_strip = transfer_action_to_nla_tracks(armature, strip_name='new_strip', start_frame=1)
+                repeat_strip_from_command_line(new_strip, 500)
     
 
 
@@ -817,8 +817,9 @@ class PT_AnnoObjectPropertyPanel(Panel):
         
         row.prop(obj, "anno_object_class_str")
         row.enabled = False
-        if "Cf7" in obj.anno_object_class_str:
-            col.operator(ConvertCf7DummyToDummy.bl_idname, text = "Convert to SimpleAnnoFeedback")
+        # Not required anymore as adding dummies became much easier.
+        # if "Cf7" in obj.anno_object_class_str:
+            # col.operator(ConvertCf7DummyToDummy.bl_idname, text = "Convert to SimpleAnnoFeedback")
         if "Model" == obj.anno_object_class_str:
             col.operator(LoadAnimations.bl_idname, text = "Load Animations")
         if "MainFile" == obj.anno_object_class_str:
@@ -833,6 +834,7 @@ class PT_AnnoObjectPropertyPanel(Panel):
 
         if "Dummy" == obj.anno_object_class_str:
             col.operator(DuplicateDummy.bl_idname, text = "Duplicate Dummy (ID Increment)")
+            
         if "DummyGroup" == obj.anno_object_class_str:
             col.operator(AddFeedbackDummy.bl_idname, text = "Add Dummy")
             col.operator(AddFeedbackConfigFromGroup.bl_idname, text = "Add Feedback Config (to Parent)")
@@ -843,9 +845,13 @@ class PT_AnnoObjectPropertyPanel(Panel):
             col.operator(FixDummyName.bl_idname, text = "Fix Dummy Name")
         elif not "NoAnnoObject" == obj.anno_object_class_str:
             col.operator(DuplicateAnnoObject.bl_idname, text = "Duplicate Anno Object")
+
         col.prop(obj, "parent")
+
         dyn = obj.dynamic_properties
         dyn.draw(col)
+        if "Dummy" == obj.anno_object_class_str:
+            col.prop(obj, "dummy_add_idle_in_walk_sequence")
 
 class PT_AnnoMaterialObjectPropertyPanel(Panel):
     bl_label = "Anno Material"
