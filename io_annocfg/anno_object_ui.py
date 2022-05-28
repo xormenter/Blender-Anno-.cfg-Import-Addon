@@ -517,9 +517,9 @@ def load_animations_for_model(obj):
                         if m_idx >= len(anim_mesh.data.materials):
                             break
                         anim_mesh.data.materials[m_idx] = material 
-            # Since f.e. walk animations are quite short, let's repeat everything so it looks decent.
-            new_strip = transfer_action_to_nla_tracks(armature, strip_name='new_strip', start_frame=1)
-            repeat_strip_from_command_line(new_strip, 500)
+                # Since f.e. walk animations are quite short, let's repeat everything so it looks decent.
+                new_strip = transfer_action_to_nla_tracks(armature, strip_name='new_strip', start_frame=1)
+                repeat_strip_from_command_line(new_strip, 500)
     
 
 
