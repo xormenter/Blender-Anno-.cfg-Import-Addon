@@ -817,8 +817,9 @@ class PT_AnnoObjectPropertyPanel(Panel):
         
         row.prop(obj, "anno_object_class_str")
         row.enabled = False
-        if "Cf7" in obj.anno_object_class_str:
-            col.operator(ConvertCf7DummyToDummy.bl_idname, text = "Convert to SimpleAnnoFeedback")
+        # Not required anymore as adding dummies became much easier.
+        # if "Cf7" in obj.anno_object_class_str:
+            # col.operator(ConvertCf7DummyToDummy.bl_idname, text = "Convert to SimpleAnnoFeedback")
         if "Model" == obj.anno_object_class_str:
             col.operator(LoadAnimations.bl_idname, text = "Load Animations")
         if "MainFile" == obj.anno_object_class_str:
