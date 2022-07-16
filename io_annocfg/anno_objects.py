@@ -525,6 +525,17 @@ class Model(AnnoObject):
     enforce_equal_scale = True #scale.x, .y and .z must be equal
     has_materials = True
 
+    @classmethod
+    def default_node(cls: Type[T]):
+        node = super().default_node() # type: ignore
+        node.tag = "Config"
+        ET.SubElement(node, "ConfigType").text ="MODEL"
+        ET.SubElement(node, "Materials")
+        ET.SubElement(node, "Name")
+        ET.SubElement(node, "FileName")
+        ET.SubElement(node, "IgnoreRuinState").text= "0"
+        return node
+
 
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
@@ -707,9 +718,6 @@ class Prop(AnnoObject):
         cls.apply_materials_to_object(imported_obj, [material])
         cls.prop_obj_blueprints[prop_filename] = imported_obj
         return imported_obj
-        
-
-
  
 class Propcontainer(AnnoObject):
     has_transform = True
@@ -731,6 +739,18 @@ class Propcontainer(AnnoObject):
     child_anno_object_types = {
         "Props" : Prop,
     }
+
+    @classmethod
+    def default_node(cls: Type[T]):
+        node = super().default_node() # type: ignore
+        node.tag = "Config"
+        ET.SubElement(node, "ConfigType").text ="PROPCONTAINER"
+        ET.SubElement(node, "Name")
+        ET.SubElement(node, "VariationEnabled").text="0"
+        ET.SubElement(node, "VariationProbability").text="100"
+        return node
+
+
 
 class Light(AnnoObject):
     has_transform = True
@@ -813,7 +833,6 @@ class IfoFile(AnnoObject):
             "IntersectBox":IfoCube,
             "Dummy":IfoCube,
             "BuildBlocker":IfoPlane,
-            "WaterBlocker":IfoPlane,
             "FeedbackBlocker":IfoPlane,
             "PriorityFeedbackBlocker":IfoPlane,
             "UnevenBlocker":IfoPlane,
@@ -1366,7 +1385,31 @@ class MainFile(AnnoObject):
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         file_obj = add_empty_to_scene()  
         return file_obj
-    
+
+    @classmethod
+    def default_node(cls: Type[T]):
+        node = super().default_node() # type: ignore
+        node.tag = "Config"
+        ET.SubElement(node, "ConfigType").text ="MAIN"
+        ET.SubElement(node, "RenderPropertyFlags").text ="134349184"
+        ET.SubElement(node, "Radius").text = "0"
+        ET.SubElement(node, "MeshRadius").text = "0"
+        ET.SubElement(node, "Center.x").text = "0.00"
+        ET.SubElement(node, "Center.y").text = "0.00"
+        ET.SubElement(node, "Center.z").text = "0.00"
+        ET.SubElement(node, "Extent.x").text = "0.00"
+        ET.SubElement(node, "Extent.y").text = "0.00"
+        ET.SubElement(node, "Extent.z").text = "0.00"
+        ET.SubElement(node, "Mass").text = "1.00"
+        ET.SubElement(node, "Drag").text = "1.00"
+        ET.SubElement(node, "MeshCenter.x").text = "0.00"
+        ET.SubElement(node, "MeshCenter.y").text = "0.00"
+        ET.SubElement(node, "MeshCenter.z").text = "0.00"
+        ET.SubElement(node, "MeshExtent.x").text = "0.00"
+        ET.SubElement(node, "MeshExtent.y").text = "0.00"
+        ET.SubElement(node, "MeshExtent.z").text = "0.00"
+        return node
+
     @classmethod
     def blender_to_xml_finish(cls, obj, node):
         model_index_by_name = {}

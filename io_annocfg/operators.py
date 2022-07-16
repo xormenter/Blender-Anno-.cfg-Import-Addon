@@ -728,12 +728,49 @@ class ExportAnnoModelOperator(Operator, ExportHelper):
 #         if not context.active_object:
 #             return False
 #         return get_anno_object_class(context.active_object) == Animation
-    
+
 class OBJECT_OT_add_anno_object(Operator, AddObjectHelper):
-    """Create a new Anno Feedback Object"""
-    bl_idname = "mesh.add_anno_object"
-    bl_label = "Add Anno Feedback Object"
+    bl_idname = "mesh.add_anno_cfgobj"
     bl_options = {'REGISTER', 'UNDO'}
+    bl_label = "Add Anno Object"
+
+    def __init__(self):
+        self.filename = ""
+        self.TargetObject : AnnoObject = MainFile()
+
+    def draw(self, context):
+        layout = self.layout
+
+    def execute(self, context):
+        self.parent = context.active_object
+        obj = self.TargetObject.from_default()
+        if self.parent:
+            obj.parent = self.parent
+
+        return {'FINISHED'}
+
+class OBJECT_OT_add_anno_mainfile(OBJECT_OT_add_anno_object):
+    bl_idname = "mesh.add_anno_mainfile"
+    def __init__(self):
+        super().__init__()
+        self.TargetObject = MainFile()
+
+class OBJECT_OT_add_anno_model(OBJECT_OT_add_anno_object):
+    bl_idname = "mesh.add_anno_model"
+    def __init__(self):
+        super().__init__()
+        self.TargetObject = Model()
+
+class OBJECT_OT_add_anno_propcontainer(OBJECT_OT_add_anno_object):
+    bl_idname = "mesh.add_anno_propcontainer"
+    def __init__(self):
+        super().__init__()
+        self.TargetObject = Propcontainer()
+    
+class OBJECT_OT_add_anno_feedback_object(OBJECT_OT_add_anno_object):
+    """Create a new Anno Feedback Object"""
+    bl_idname = "mesh.add_anno_feedback_object"
+    bl_label = "Add Anno Feedback Object"
     object_type: EnumProperty( # type: ignore
         name='Type',
         description='Object Type',
@@ -744,32 +781,21 @@ class OBJECT_OT_add_anno_object(Operator, AddObjectHelper):
             ('SimpleAnnoFeedbackEncoding', 'SimpleAnnoFeedbackEncoding', '')},
             default='Dummy')
     
-    
     anno_object_by_enum = {
             "Dummy": Dummy,
             "DummyGroup": DummyGroup,
             "FeedbackConfig": FeedbackConfig,
             "SimpleAnnoFeedbackEncoding": SimpleAnnoFeedbackEncodingObject,
         }
-    
-    def __init__(self):
-        self.filename = ""
+
     def draw(self, context):
         layout = self.layout
         col = layout.column()
         col.prop(self, "object_type")
     
     def execute(self, context):
-        self.parent = context.active_object
-        
-        anno_object = self.anno_object_by_enum[self.object_type]
-        obj = anno_object.from_default()
-        # obj.name = obj.name.split("_")[1] + self.object_type
-        if self.parent:
-            obj.parent = self.parent
-
-        return {'FINISHED'}
-
+        self.TargetObject = self.anno_object_by_enum[self.object_type]
+        return super().execute(context)
 
 class ImportAllPropsOperator(Operator, ImportHelper):
     """Import all props (located in the rda folder) into this file. Use this to create an asset library from this .blend file. 
@@ -781,7 +807,6 @@ class ImportAllPropsOperator(Operator, ImportHelper):
     
     filename_ext = "."
     use_filter_folder = True
-    
     
     def execute(self, context):
         self.report({'INFO'}, f"Importing all props from {self.filepath}...")
@@ -883,26 +908,54 @@ class ImportAllCfgsOperator(Operator, ImportHelper):
             bpy.ops.ed.lib_id_generate_preview({"id": collection})
         return {"FINISHED"}
 
+
+class AnnoObjectMenu(bpy.types.Menu):
+    bl_idname="add.anno_objects"
+    bl_label="Anno Objects"
+
+    def draw(self, context):
+        layout = self.layout
+
+        layout.operator(
+            OBJECT_OT_add_anno_mainfile.bl_idname,
+            text="Empty Main File",
+            icon='PLUGIN')
+        layout.operator(
+            OBJECT_OT_add_anno_model.bl_idname,
+            text="Empty Model",
+            icon='PLUGIN')
+        layout.operator(
+            OBJECT_OT_add_anno_propcontainer.bl_idname,
+            text="Empty Prop Container",
+            icon='PLUGIN')
+        layout.operator(
+            OBJECT_OT_add_anno_feedback_object.bl_idname,
+            text="Empty Feedback Object",
+            icon='PLUGIN')
+
 classes = (
     ExportAnnoCfg,
     ImportAnnoCfg,
     ExportAnnoModelOperator,
     ImportAnnoModelOperator,
     ImportAnnoPropOperator,
-    OBJECT_OT_add_anno_object,
+    OBJECT_OT_add_anno_feedback_object,
+    OBJECT_OT_add_anno_mainfile,
+    OBJECT_OT_add_anno_model,
+    OBJECT_OT_add_anno_propcontainer,
     ImportAllPropsOperator,
     ImportAllCfgsOperator,
     ImportAnnoIsland,
     ExportAnnoIsland,
+    AnnoObjectMenu
     # ExportAnimatedAnnoModelOperator,
 )
 
-def add_anno_object_button(self, context):
-    self.layout.operator(
-        OBJECT_OT_add_anno_object.bl_idname,
-        text="Add Anno Feedback Object",
+def add_anno_object_menu(self, context):
+    self.layout.menu(
+        AnnoObjectMenu.bl_idname,
+        text="Anno Objects",
         icon='PLUGIN')
-
 
 def menu_func_import(self, context):
     self.layout.operator(ImportAnnoCfg.bl_idname, text="Anno (.cfg)")
@@ -958,7 +1011,7 @@ def register():
     for func in export_funcs:
         bpy.types.TOPBAR_MT_file_export.append(func)
 
-    bpy.types.VIEW3D_MT_mesh_add.append(add_anno_object_button)
+    bpy.types.VIEW3D_MT_add.append(add_anno_object_menu)
 
 def unregister():
     from bpy.utils import unregister_class
@@ -971,4 +1024,4 @@ def unregister():
     for func in export_funcs:
         bpy.types.TOPBAR_MT_file_export.remove(func)
         
-    bpy.types.VIEW3D_MT_mesh_add.remove(add_anno_object_button)
+    bpy.types.VIEW3D_MT_add.remove(add_anno_object_menu)
