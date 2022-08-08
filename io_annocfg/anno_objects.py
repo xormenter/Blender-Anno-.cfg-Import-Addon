@@ -1412,6 +1412,8 @@ class PropGridInstance:
             o.empty_display_type = 'ARROWS'   
             return o
         prop_obj = prop_objects[index]
+        if prop_obj is None:
+            return None
         copy = prop_obj.copy()
         bpy.context.scene.collection.objects.link(copy)
         return copy
@@ -1431,6 +1433,8 @@ class PropGridInstance:
         </None>
         """
         obj = cls.add_blender_object_to_scene(node, prop_objects)
+        if obj is None:
+            return
         if parent_obj:
             obj.parent = parent_obj
         
@@ -1522,7 +1526,7 @@ class IslandFile:
         return base_node
     
     @classmethod
-    def xml_to_blender(cls, node: ET.Element) -> BlenderObject:
+    def xml_to_blender(cls, node: ET.Element, prop_import_mode) -> BlenderObject:
         obj = cls.add_blender_object_to_scene(node)
         obj["islandxml"] = ET.tostring(node)
         obj.name = "ISLAND_FILE"
@@ -1550,12 +1554,16 @@ class IslandFile:
             terrain_obj.location.x -= grid_width*unit_scale/2
             terrain_obj.location.y -= grid_width*unit_scale/2
             terrain_obj.rotation_euler[2] = radians(90.0)
-            
+        if prop_import_mode == "None":
+            return obj
         filenames_node = node.find("PropGrid/FileNames")
         prop_objects = []
         if filenames_node is not None:
             for i, file_node in enumerate(list(filenames_node)):
                 data_path = file_node.text
+                if prop_import_mode == "No Vegetation" and "vegetation" in data_path:
+                    prop_objects.append(None)
+                    continue
                 prop_xml_node = ET.fromstring(f"""
                             <Config>
                                 <ConfigType>PROP</ConfigType>
