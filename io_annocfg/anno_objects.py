@@ -1586,9 +1586,10 @@ class IslandFile:
         else:
             print("Island missing PropGrid")
             print(node.find("PropGrid"))
-            
         #delete the blueprint props
         for prop_obj in prop_objects:
+            if prop_obj is None:
+                continue
             bpy.data.objects.remove(prop_obj, do_unlink=True)
         return obj
 
