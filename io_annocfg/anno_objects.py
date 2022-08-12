@@ -226,7 +226,11 @@ class AnnoObject(ABC):
     @classmethod
     def add_children_from_obj(cls, obj, node, child_map):
         container_name_by_subclass = {subcls : container_name for container_name, subcls in cls.child_anno_object_types.items()}
-        for child_obj in child_map.get(obj.name, []):
+        children = obj.children
+        if child_map is not None:
+            #ToDo: Do not use child map if it is not necessary. I think there were problems with obj.children, but i do not remember them.
+            children = child_map.get(obj.name, [])
+        for child_obj in children:
             subcls = get_anno_object_class(child_obj)
             if subcls == NoAnnoObject:
                 continue
@@ -540,14 +544,22 @@ class Model(AnnoObject):
         if node.find("Animations") is not None:
             return
         #Animations may have been loaded.
-        for child_obj in child_map.get(obj.name, []):
+        children = obj.children
+        if child_map is not None:
+            #ToDo: Do not use child map if it is not necessary. I think there were problems with obj.children, but i do not remember them.
+            children = child_map.get(obj.name, [])
+        for child_obj in children:
             subcls = get_anno_object_class(child_obj)
             if subcls != AnimationsNode:
                 continue
             animations_container = child_obj
             animations_node = find_or_create(node, "Animations")
             anim_nodes = []
-            for anim_obj in child_map.get(animations_container.name, []):
+            anim_children = animations_container.children
+            if child_map is not None:
+                #ToDo: Do not use child map if it is not necessary. I think there were problems with obj.children, but i do not remember them.
+                anim_children = child_map.get(animations_container.name, [])
+            for anim_obj in anim_children:
                 subcls = get_anno_object_class(anim_obj)
                 if subcls != Animation:
                     continue
@@ -830,7 +842,11 @@ class IfoFile(AnnoObject):
     
     @classmethod
     def add_children_from_obj(cls, obj, node, child_map):
-        for child_obj in child_map.get(obj.name, []):
+        children = obj.children
+        if child_map is not None:
+            #ToDo: Do not use child map if it is not necessary. I think there were problems with obj.children, but i do not remember them.
+            children = child_map.get(obj.name, [])
+        for child_obj in children:
             subcls = get_anno_object_class(child_obj)
             if subcls == NoAnnoObject:
                 continue
@@ -1036,7 +1052,11 @@ class DummyGroup(AnnoObject):
 
     @classmethod
     def add_children_from_obj(cls, obj, node, child_map):
-        for child_obj in child_map.get(obj.name, []):
+        children = obj.children
+        if child_map is not None:
+            #ToDo: Do not use child map if it is not necessary. I think there were problems with obj.children, but i do not remember them.
+            children = child_map.get(obj.name, [])
+        for child_obj in children:
             subcls = get_anno_object_class(child_obj)
             if subcls == NoAnnoObject:
                 continue
@@ -1254,7 +1274,11 @@ class Cf7File(AnnoObject):
     @classmethod
     def add_children_from_obj(cls, obj, node, child_map):
         dummy_groups_node = find_or_create(node, "DummyRoot/Groups")
-        for child_obj in child_map.get(obj.name, []):
+        children = obj.children
+        if child_map is not None:
+            #ToDo: Do not use child map if it is not necessary. I think there were problems with obj.children, but i do not remember them.
+            children = child_map.get(obj.name, [])
+        for child_obj in children:
             subcls = get_anno_object_class(child_obj)
             if subcls != Cf7DummyGroup:
                 continue
@@ -1262,7 +1286,7 @@ class Cf7File(AnnoObject):
         if not IO_AnnocfgPreferences.splines_enabled():
             return
         spline_data_node = find_or_create(node, "SplineData")
-        for spline_obj in child_map.get(obj.name, []):
+        for spline_obj in children:
             subcls = get_anno_object_class(spline_obj)
             if subcls != Spline:
                 continue
