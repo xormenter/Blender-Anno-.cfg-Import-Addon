@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import bpy
 from bpy.types import Object as BlenderObject
 import xml.etree.ElementTree as ET
@@ -391,7 +391,20 @@ class DuplicateDummy(Operator):
         duplicate.select_set(True)
         bpy.context.view_layer.objects.active = duplicate
         return {'FINISHED'}
-    
+
+
+class ConvertToXML(Operator):
+    """Converts the selected object into xml and copies it to the clipboard."""
+    bl_idname = "object.convert_to_xml"
+    bl_label = "Convert To XML"
+
+    def execute(self, context):
+        obj = context.active_object
+        node = get_anno_object_class(obj).blender_to_xml(obj, None, None)
+        ET.indent(node, space="\t", level=0)
+        xmlstr = ET.tostring(node, encoding='utf8', method='xml').replace("<?xml version='1.0' encoding='utf8'?>\n", "")
+        bpy.context.window_manager.clipboard = xmlstr
+        return {'FINISHED'}    
 
 class AddFeedbackDummy(Operator):
     """Adds a properly named dummy to the group."""
@@ -845,7 +858,8 @@ class PT_AnnoObjectPropertyPanel(Panel):
             col.operator(FixDummyName.bl_idname, text = "Fix Dummy Name")
         elif not "NoAnnoObject" == obj.anno_object_class_str:
             col.operator(DuplicateAnnoObject.bl_idname, text = "Duplicate Anno Object")
-
+        if not "NoAnnoObject" == obj.anno_object_class_str:
+            col.operator(ConvertToXML.bl_idname, text = "Convert To XML")
         col.prop(obj, "parent")
 
         dyn = obj.dynamic_properties
@@ -927,6 +941,7 @@ classes = [
     LoadAllAnimations,
     DuplicateAnnoObject,
     DuplicateDummy,
+    ConvertToXML,
     ShowSequence,
     ShowModel,
     MakeCollectionInstanceReal,
