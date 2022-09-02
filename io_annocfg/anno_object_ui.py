@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 import bpy
 from bpy.types import Object as BlenderObject
 import xml.etree.ElementTree as ET
@@ -402,7 +402,8 @@ class ConvertToXML(Operator):
         obj = context.active_object
         node = get_anno_object_class(obj).blender_to_xml(obj, None, None)
         ET.indent(node, space="\t", level=0)
-        xmlstr = ET.tostring(node, encoding='utf8', method='xml').replace("<?xml version='1.0' encoding='utf8'?>\n", "")
+        xmlstr = ET.tostring(node, encoding='utf8', method='xml')
+        xmlstr = xmlstr.replace("<?xml version='1.0' encoding='utf8'?>\n".encode(), "".encode())
         bpy.context.window_manager.clipboard = xmlstr
         return {'FINISHED'}    
 

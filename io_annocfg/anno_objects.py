@@ -1481,7 +1481,7 @@ class PropGridInstance:
         return obj
     
     @classmethod
-    def blender_to_xml(cls, obj):
+    def blender_to_xml(cls, obj, parent = None, child_map = None):
         base_node = obj.dynamic_properties.to_node(ET.Element("None"))
         node = ET.Element("None")
 
@@ -1514,7 +1514,7 @@ class IslandFile:
         file_obj = add_empty_to_scene()  
         return file_obj
     @classmethod
-    def blender_to_xml(cls, obj):
+    def blender_to_xml(cls, obj, parent = None, child_map = None):
         """Only exports the prop grid. Not the heighmap or the prop FileNames."""
         base_node = ET.fromstring(obj["islandxml"])
         
@@ -1578,6 +1578,9 @@ class IslandFile:
             terrain_obj.location.x -= grid_width*unit_scale/2
             terrain_obj.location.y -= grid_width*unit_scale/2
             terrain_obj.rotation_euler[2] = radians(90.0)
+            
+           
+            
         if prop_import_mode == "None":
             return obj
         filenames_node = node.find("PropGrid/FileNames")
@@ -1772,7 +1775,7 @@ class GameObject:
         return obj
     
     @classmethod
-    def blender_to_xml(cls, obj):
+    def blender_to_xml(cls, obj, parent = None, child_map = None):
         node = obj.dynamic_properties.to_node(ET.Element("None"))
         node.find("ID").text = node.find("ID").text.replace("ID_", "")
         
