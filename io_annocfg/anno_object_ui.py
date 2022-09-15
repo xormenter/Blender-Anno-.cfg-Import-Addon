@@ -392,6 +392,16 @@ class DuplicateDummy(Operator):
         bpy.context.view_layer.objects.active = duplicate
         return {'FINISHED'}
 
+class CreateGameObjectFromFile(Operator):
+    """Creates a game-object entry for this object. You still need to specify the id, guid, var_id, and all other important stuff yourself."""
+    bl_idname = "object.make_game_object"
+    bl_label = "Make Game Object (Island Editor)"
+
+    def execute(self, context):
+        obj = context.active_object
+        game_obj = GameObject.parent_for_subfile(obj)
+        return {'FINISHED'}    
+
 
 class ConvertToXML(Operator):
     """Converts the selected object into xml and copies it to the clipboard."""
@@ -582,8 +592,10 @@ class InstancedCollectionToSubFile(Operator):
             return False
         if obj.instance_collection is None:
             return False
+    
         if obj.instance_collection.asset_data is None:
             return False
+
         return "data" in obj.instance_collection.asset_data.description
 
 class LoadAnimations(Operator):
@@ -861,6 +873,9 @@ class PT_AnnoObjectPropertyPanel(Panel):
             col.operator(DuplicateAnnoObject.bl_idname, text = "Duplicate Anno Object")
         if not "NoAnnoObject" == obj.anno_object_class_str:
             col.operator(ConvertToXML.bl_idname, text = "Convert To XML")
+            
+        if "MainFile" in obj.anno_object_class_str or "SubFile" in obj.anno_object_class_str and obj.parent is None:
+            col.operator(CreateGameObjectFromFile.bl_idname, text = CreateGameObjectFromFile.bl_label)
         col.prop(obj, "parent")
 
         dyn = obj.dynamic_properties
@@ -943,6 +958,7 @@ classes = [
     DuplicateAnnoObject,
     DuplicateDummy,
     ConvertToXML,
+    CreateGameObjectFromFile,
     ShowSequence,
     ShowModel,
     MakeCollectionInstanceReal,

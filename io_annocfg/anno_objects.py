@@ -7,7 +7,7 @@ import os
 import random
 import re
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Tuple, List, NewType, Any, Union, Dict, Optional, TypeVar, Type
 from abc import ABC, abstractmethod
 from bpy.props import EnumProperty, BoolProperty, PointerProperty, IntProperty, FloatProperty, CollectionProperty, StringProperty, FloatVectorProperty
@@ -570,6 +570,11 @@ class Model(AnnoObject):
                 anim_node.remove(anim_node.find("AnimationIndex"))
                 animations_node.append(anim_node)
 
+def recursive_add_to_collection(obj, collection):
+    collection.objects.link(obj)
+    for c in obj.children:
+        recursive_add_to_collection(c, collection)
+
 class SubFile(AnnoObject):
     has_transform = True
     transform_paths = {
@@ -589,13 +594,79 @@ class SubFile(AnnoObject):
     has_materials = False
     
     @classmethod 
+    def try_loading_from_library(cls, data_path, last_modified):
+        from datetime import datetime
+        libpath = IO_AnnocfgPreferences.get_cfg_cache_path()
+        p = Path(libpath, Path(data_path + ".blend"))
+        if p.exists():
+            cache_last_modified = p.stat().st_mtime
+            if cache_last_modified < last_modified:
+                print(f"Cache Invalidation for {p}, modified {data_path} at {datetime.fromtimestamp(last_modified)}, last cache update at {datetime.fromtimestamp(cache_last_modified)}")
+                p.unlink()
+                return None
+            
+            with bpy.data.libraries.load(str(p)) as (data_from, data_to):
+                data_to.collections = data_from.collections
+            for new_coll in data_to.collections:
+                if Path(data_path).name in new_coll.name:
+                    instance = bpy.data.objects.new(new_coll.name, None)
+                    instance.instance_type = 'COLLECTION'
+                    instance.instance_collection = new_coll
+                    bpy.context.scene.collection.objects.link(instance)
+                    print(f"Loaded {Path(data_path).name} from lib")
+                    return instance
+            print(f"Warning: Failed to load {Path(data_path).name} from existing cache file {p}")
+        return None
+    
+    @classmethod 
+    def cache_to_library(cls, file_obj, data_path):
+        print(f"Caching {data_path} in library")
+        libpath = IO_AnnocfgPreferences.get_cfg_cache_path()
+        if not libpath.exists():
+            print(f"Warning, invalid cfg cache path {libpath}")
+            return 
+        p = Path(libpath, Path(data_path).parent)
+        p.mkdir(parents=True, exist_ok=True)
+        
+        
+        collection = bpy.data.collections.new(file_obj.name)
+        bpy.context.scene.collection.children.link(collection)
+        
+        collection.asset_mark()
+        collection.asset_data.tags.new("cfg")
+        collection.asset_data.description = data_path
+        for directory in PurePath(data_path).parts[:-1]:
+            if directory not in ["graphics", "data"]:
+                collection.asset_data.tags.new(directory)
+        bpy.ops.ed.lib_id_generate_preview({"id": collection})
+        
+        
+        recursive_add_to_collection(file_obj, collection)
+        objects = []
+        for obj in collection.all_objects:
+            objects.append(obj)
+        objects.append(collection)
+        filename = f"{Path(data_path).name}.blend"
+        filepath = Path(p, filename)
+        bpy.data.libraries.write(str(filepath), set(objects), fake_user=True)
+        bpy.context.scene.collection.children.unlink(collection)
+        bpy.data.collections.remove(collection)
+        
+    @classmethod 
     def load_subfile(cls, data_path):
         if data_path is None:
             return add_empty_to_scene()
-        
         fullpath = data_path_to_absolute_path(data_path)
         if not fullpath.exists():
             return add_empty_to_scene()
+        
+        last_modified = fullpath.stat().st_mtime
+        
+        if IO_AnnocfgPreferences.cfg_cache_loading_enabled(): #ToDo: Remove True here!!!
+            file_obj = cls.try_loading_from_library(data_path, last_modified)
+            if file_obj is not None:
+                return file_obj
+        
         tree = ET.parse(fullpath)
         root = tree.getroot()
         if root is None:
@@ -603,9 +674,12 @@ class SubFile(AnnoObject):
         
         file_obj = MainFile.xml_to_blender(root)
         file_obj.name = "MAIN_FILE_" + fullpath.name
+        
+        if random.random() < IO_AnnocfgPreferences.cfg_cache_probability():
+            cls.cache_to_library(file_obj, data_path)
         return file_obj
-        
-        
+    
+    
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         subfile_obj = add_empty_to_scene()
@@ -1551,6 +1625,8 @@ class IslandFile:
     
     @classmethod
     def xml_to_blender(cls, node: ET.Element, prop_import_mode) -> BlenderObject:
+        import numpy as np
+        
         obj = cls.add_blender_object_to_scene(node)
         obj["islandxml"] = ET.tostring(node)
         obj.name = "ISLAND_FILE"
@@ -1569,17 +1645,79 @@ class IslandFile:
             bpy.ops.mesh.landscape_add(subdivision_x=width, subdivision_y=height, mesh_size_x=grid_width*unit_scale, mesh_size_y=grid_width*unit_scale,
                                        height=0, refresh=True)
             terrain_obj = bpy.context.active_object
-            max_height = 30
+            max_height = 8192
             min_height = float(get_text(terrain_node,"MinMeshLevel", "0"))
             #0,03125
             for i, vert in enumerate(terrain_obj.data.vertices):
-                vert.co.z = data[i] / 8192 * 32
+                vert.co.z = data[i] / max_height * 32
                 vert.co.x *= -1
             terrain_obj.location.x -= grid_width*unit_scale/2
             terrain_obj.location.y -= grid_width*unit_scale/2
             terrain_obj.rotation_euler[2] = radians(90.0)
             
-           
+            if False:
+                #Make a terrain texture
+                print("Making heightmap")
+                image = bpy.data.images.new("TerrainHeightmap", width=width, height=height)
+                pixels = [None] * width * height
+                maxh = 0.0
+                np_array = np.zeros((width,height,4), dtype = np.float16)
+                for x, row in enumerate(np_array):
+                    for y, pix in enumerate(row):
+                        index = (x * np_array.shape[0]) + y
+                        
+                        h = ((data[index]+max_height)/(2*max_height))
+                        pix[0] = h
+                        pix[1] = h
+                        pix[2] = h
+                        pix[3] = 1.0
+                        # For some reason, the height value does not convert correctly. Super weird...
+                        # In theory, after subtracting 0.5 and multiplying with 64, we should get the exact same heightmap...
+                # return obj
+                # for x in range(width):
+                #     for y in range(height):
+                #         index = (y * width) + x
+                #         h = (data[index]/8192.0*0.5)+0.5
+                        
+                #         maxh = max(maxh, data[index])
+                #         r = h
+                #         g = h
+                #         b = h
+                #         a = 1.0
+                #         np_array[index] = [r,g,b,a]
+                #         pixels[index] = [r, g, b, a]
+                # print("Maximum height value", maxh)
+                # flatten list
+                # pixels = [chan for px in pixels for chan in px]
+                image.pixels = np_array.ravel()
+                image.filepath_raw = "C:/Users/Lars/test.png"
+                image.file_format = 'PNG'
+                # image.save()
+                # bpy.context.scene.render.image_settings.color_depth = '16'
+
+                #Save as 16bit BW
+                scene = bpy.context.scene
+                settings = scene.render.image_settings
+                old_color_depth, old_format, old_color_mode = (settings.color_depth, settings.file_format, settings.color_mode)
+                settings.color_depth = '16'
+                settings.file_format = 'PNG'
+                settings.color_mode = 'BW'
+                # Save with scene
+                image.save_render('C:/Users/Lars/test_smart.png', scene = scene)
+                #Reset settings
+                settings.color_depth = old_color_depth
+                settings.file_format = old_format
+                settings.color_mode = old_color_mode
+                print("Exported image")
+                
+                bpy.ops.mesh.landscape_add(subdivision_x=width, subdivision_y=height, mesh_size_x=grid_width*unit_scale, mesh_size_y=grid_width*unit_scale,
+                                            height=0, refresh=True)
+                terrain_obj = bpy.context.active_object
+                heightTex = bpy.data.textures.new('HeightMap', type = 'IMAGE')
+                heightTex.image = image
+
+                terrain_obj.location.x -= grid_width*unit_scale/2
+                terrain_obj.location.y -= grid_width*unit_scale/2
             
         if prop_import_mode == "None":
             return obj
@@ -1693,6 +1831,71 @@ class GameObject:
         o.empty_display_type = 'ARROWS'   
         return o
     
+    @classmethod 
+    def parent_for_subfile(cls, file_obj) -> BlenderObject:
+        node = ET.fromstring(f"""
+        <None>
+            <guid>0</guid>
+            <ID>{random.randint(-2147483647,2147483647)}</ID>
+            <Variation>0</Variation>
+            <Position>0,0 0,0 0,0</Position>
+            <Direction>3.14159</Direction>
+            <ParticipantID>
+                <id>8</id>
+            </ParticipantID>
+            <QuestObject>
+                <QuestIDs />
+                <ObjectWasVisible>
+                <None>False</None>
+                <None>False</None>
+                </ObjectWasVisible>
+                <OverwriteVisualParticipant />
+            </QuestObject>
+            <Mesh>
+                <Flags>
+                <flags>1</flags>
+                </Flags>
+                <SequenceData>
+                <CurrentSequenceStartTime>100</CurrentSequenceStartTime>
+                </SequenceData>
+                <Orientation>0 0,0 0,0 0,0</Orientation>
+                <Scale>1.0</Scale>
+            </Mesh>
+            <SoundEmitter />
+        </None>
+        """)
+        obj = cls.add_blender_object_to_scene(node)
+        set_anno_object_class(obj, cls)
+        
+        node.find("ID").text = "ID_"+node.find("ID").text
+        mesh_node = node.find("Mesh")
+    
+        location = [float(s) for s in get_text_and_delete(node, "Position", "0,0 0,0 0,0").replace(",", ".").split(" ")]
+        rotation = [1.0, 0.0, 0.0, 0.0] 
+        scale    = [1.0, 1.0, 1.0]
+        if mesh_node is not None:
+            rotation = [float(s) for s in get_text_and_delete(mesh_node, "Orientation", "1,111 0,0 0,0 0,0").replace(",", ".").split(" ")]
+            rotation = [rotation[3], rotation[0], rotation[1], rotation[2]] #xzyw -> wxzy
+            scale = [float(s) for s in get_text_and_delete(mesh_node, "Scale", "1,0 1,0 1,0").replace(",", ".").split(" ")]
+            if len(scale) == 1:
+                scale = [scale[0], scale[0], scale[0]]
+        
+        transform = Transform(location, rotation, scale, anno_coords = True)
+        transform.apply_to(obj)
+
+        obj.dynamic_properties.from_node(node)
+        
+        
+        obj.name = "GameObject_" + str(file_obj.name.replace("FILE_", ""))
+        obj.location = file_obj.location
+        obj.rotation_quaternion = file_obj.rotation_quaternion
+        obj.scale = file_obj.scale
+        file_obj.parent = obj
+        file_obj.location = (0,0,0)
+        file_obj.rotation_quaternion = (1, 0,0,0)
+        file_obj.scale = (1,1,1)
+        return obj
+        
     @classmethod
     def xml_to_blender(cls, node: ET.Element, assetsXML, parent_obj = None) -> BlenderObject:
         """
