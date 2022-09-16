@@ -13,10 +13,9 @@ from .prefs import IO_AnnocfgPreferences
 from .utils import *
 from . import feedback_enums
 from .material import Material, ClothMaterial
-from .anno_objects import get_anno_object_class, set_anno_object_class, MainFile, Model, Cf7File, SubFile, Decal, Propcontainer, Prop, Particle, IfoPlane, Sequence, DummyGroup,\
+from .anno_objects import get_anno_object_class,anno_object_classes, set_anno_object_class, MainFile, Model, Cf7File, SubFile, Decal, Propcontainer, Prop, Particle, IfoPlane, Sequence, DummyGroup,\
     Cf7DummyGroup, Cf7Dummy, FeedbackConfig, SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, IfoFile, Spline, IslandFile, PropGridInstance, \
-    IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequence, AnimationSequences, Track, TrackElement, IfoMeshHeightmap, NoAnnoObject, Dummy
-
+    IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequence, AnimationSequences, Track, TrackElement, IfoMeshHeightmap, NoAnnoObject, Dummy, BezierCurve, AssetsXML
 
 class BoolPropertyGroup(PropertyGroup):
     tag : StringProperty(name = "", default = "SomeBool") # type: ignore
@@ -370,6 +369,80 @@ class ConvertCf7DummyToDummy(Operator):
         obj.anno_object_class_str = obj.anno_object_class_str.replace("Cf7", "")
         obj.name = obj.name.replace("Cf7", "")
         return {'FINISHED'}
+
+
+class PasteFromClipboardOperator(Operator):
+    """Parses the xml snippet from the clipboard into an anno object. This does NOT perform any checks on the validity of the input, so use with care. Not all ObjectTypes are fully supported, even if listed."""
+    bl_idname = "import.paste_from_clipboard" 
+    bl_label = "Import From Clipboard (Anno)"
+    anno_object_by_enum = {str(cls):cls for cls in anno_object_classes}
+    def execute(self, context):
+        import itertools as IT
+        # if not self.path.suffix == ".xml" or not self.path.exists():
+        #     self.report({'ERROR_INVALID_INPUT'}, f"Invalid file or extension")
+        #     return {'CANCELLED'}
+        anno_object = self.anno_object_by_enum[context.scene.anno_xml_import_object_class]
+        obj = None
+        node = None
+        content = bpy.context.window_manager.clipboard
+        try:
+            node = ET.fromstring(content)
+        except ET.ParseError as err:
+            lineno, column = err.position
+            line = content.splitlines()[lineno-1]
+            self.report({'ERROR_INVALID_INPUT'}, f"Invalid XML: {err}\n{line}")
+            return {"CANCELLED"}
+        if anno_object == GameObject:
+            assetsXML = AssetsXML()
+            obj = anno_object.xml_to_blender(node, assetsXML)
+        else:
+            obj = anno_object.xml_to_blender(node)
+        if obj is None:
+            self.report({'ERROR_INVALID_INPUT'}, f"Conversion failed.")
+            return {"CANCELLED"}
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        self.report({'INFO'}, f"Pasting {anno_object.__name__} completed!")
+        return {"FINISHED"}
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column()
+        col.prop(self, "object_type")
+
+ #https://b3d.interplanety.org/en/multiline-text-in-blender-interface-panels/
+def _label_multiline(context, text, parent, maxlength = None):
+    if maxlength is not None and len(text) > maxlength:
+        text = text[:maxlength] + "..."
+    import textwrap
+    chars = int(context.region.width / 6.2)
+    wrapper = textwrap.TextWrapper(width=chars)
+    text_lines = wrapper.wrap(text=text)
+    for text_line in text_lines:
+        parent.label(text=text_line)
+class PT_AnnoXMLPastePropertyPanel(Panel):
+    bl_label = "Anno XML Import"
+    bl_idname = "VIEW_3D_PT_AnnoXMLImport"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Anno Object' 
+    #bl_context = "object"
+    
+    @classmethod
+    def poll(cls, context):
+        return True
+            
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column()
+        _label_multiline(
+            context=context,
+            text=bpy.context.window_manager.clipboard.replace(" ", "").replace("\t", ""),
+            parent=layout,
+            maxlength = 100
+        )
+        col.prop(context.scene, "anno_xml_import_object_class")
+        col.operator(PasteFromClipboardOperator.bl_idname, text = PasteFromClipboardOperator.bl_label) 
+
 
 class DuplicateDummy(Operator):
     """Duplicates the dummy and gives the duplicate a higher id. Assumes a name like dummy_42."""
@@ -973,8 +1046,15 @@ classes = [
     AddFeedbackConfig,
     AddSimpleAnnoFeedback,
     AddFeedbackConfigFromGroup,
+    PT_AnnoXMLPastePropertyPanel,
+    PasteFromClipboardOperator,
 ]
 def register():
+    bpy.types.Scene.anno_xml_import_object_class = EnumProperty( # type: ignore
+        name='Type',
+        description='Object Type',
+        items=[(str(cls), cls.__name__, "") for cls in anno_object_classes],
+            default=str(BezierCurve))
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.ShaderNodeTexImage.anno_properties = bpy.props.PointerProperty(type=AnnoImageTextureProperties)
@@ -985,5 +1065,6 @@ def register():
 def unregister():
     del bpy.types.ShaderNodeTexImage.anno_properties
     del bpy.types.Object.dynamic_properties
+    del bpy.types.Scene.anno_xml_import_object_class
     for cls in classes:
         bpy.utils.unregister_class(cls)

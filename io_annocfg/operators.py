@@ -19,10 +19,10 @@ from typing import Tuple, List, NewType, Any, Union, Dict, Optional, TypeVar, Ty
 from . import feedback_enums
 from .simple_anno_feedback_encoding import SimpleAnnoFeedbackEncoding
 from .prefs import IO_AnnocfgPreferences
-from .anno_objects import get_anno_object_class, Transform, AnnoObject, MainFile, Model, SimpleAnnoFeedbackEncodingObject, \
-    SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup, \
+from .anno_objects import get_anno_object_class, anno_object_classes, Transform, AnnoObject, MainFile, Model, SimpleAnnoFeedbackEncodingObject, \
+    SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup, ArbitraryXMLAnnoObject, Material, \
     Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig, Light, IfoFile, Cf7File, IslandFile, PropGridInstance, IslandGamedataFile, AssetsXML,\
-    Animation, Cloth
+    Animation, Cloth, BezierCurve, GameObject, AnimationsNode, AnimationSequences, AnimationSequence, Track, TrackElement, IfoMeshHeightmap,BezierCurve,Spline
 
 
 from .utils import data_path_to_absolute_path, to_data_path
@@ -961,6 +961,9 @@ class ImportAllCfgsOperator(Operator, ImportHelper):
                     collection.asset_data.tags.new(directory)
             bpy.ops.ed.lib_id_generate_preview({"id": collection})
         return {"FINISHED"}
+
+
+
 
 classes = (
     ExportAnnoCfg,

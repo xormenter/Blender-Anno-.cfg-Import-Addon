@@ -1758,6 +1758,119 @@ class IslandFile:
             bpy.data.objects.remove(prop_obj, do_unlink=True)
         return obj
 
+class BezierCurve():
+    @classmethod
+    def is_valid_bezier_curve_node(cls, node: ET.Element) -> bool:
+        if node.tag != "BezierPath":
+            return False
+        path_node = node.find("Path")
+        if path_node is None:
+            return False
+        curve_node = path_node.find("BezierCurve")
+        if curve_node is None:
+            return False
+        for point_node in list(curve_node):
+            for attribute in list(point_node):
+                if attribute.tag not in ["p", "i", "o"]:
+                    return False
+        return True
+
+    @classmethod
+    def add_blender_object_to_scene(cls, node) -> BlenderObject:
+        curvedata = bpy.data.curves.new(name="Curve", type='CURVE')   
+        curvedata.dimensions = '3D'    
+        obj = bpy.data.objects.new("BezierCurve", curvedata)   
+        bpy.context.scene.collection.objects.link(obj)  
+        polyline = curvedata.splines.new('BEZIER')  
+        
+        path_node = node.find("Path")
+        curve_node = path_node.find("BezierCurve")
+        point_nodes = list(curve_node)
+        num_points = len(point_nodes)
+        polyline.bezier_points.add(num_points-1) 
+    
+        for idx, _ in enumerate(point_nodes):
+            point = polyline.bezier_points[idx]
+            point_node = point_nodes[idx]
+            v = [float(s) for s in get_text_and_delete(point_node, "p", "0,0 0,0 0,0").replace(",", ".").split(" ")]
+            position = (-v[0], -v[2], v[1])
+            point.co = position
+            v = [float(s) for s in get_text_and_delete(point_node, "i", "0,0 0,0 0,0").replace(",", ".").split(" ")]
+            handle_left = (position[0]-v[0], position[1]-v[2], position[2]+v[1])
+            point.handle_left = handle_left
+            v = [float(s) for s in get_text_and_delete(point_node, "o", "0,0 0,0 0,0").replace(",", ".").split(" ")]
+            handle_right = (position[0]-v[0], position[1]-v[2], position[2]+v[1])
+            point.handle_right = handle_right
+            point.handle_left_type = 'FREE'
+            point.handle_right_type = 'FREE'
+        path_node.remove(curve_node)
+        min_node = path_node.find("Minimum")
+        max_node = path_node.find("Maximum")
+        path_node.remove(min_node)
+        path_node.remove(max_node)
+        return obj 
+        
+    @classmethod
+    def xml_to_blender(cls, node: ET.Element, parent_obj = None) -> BlenderObject:
+        """
+        Only supports these curves. No idea what w, u0 stands for in other variants of bezier curves.
+        <BezierPath>
+            <Path>
+                <Minimum>121,90588 5,298042 160,05571</Minimum>
+                <Maximum>128,76202 5,301949 165,46204</Maximum>
+                <BezierCurve>
+                    <None>
+                        <p>127,08328 5,298042 160,76552</p>
+                        <i>-0,19070435 0 -0,15771994</i>
+                        <o>0,19070435 0 0,15771994</o>
+                    </None>
+                    <None>
+                        <p>128,22751 5,298042 161,71184</p>
+                        <i>-0,11701199 0 -0,21806403</i>
+                        <o>0,17704894 0 0,32994914</o>
+                    </None>
+                </BezierCurve>
+            </Path>
+        </BezierPath>
+        """
+        obj = cls.add_blender_object_to_scene(node)
+        set_anno_object_class(obj, cls)
+        obj.dynamic_properties.from_node(node)
+        if parent_obj:
+            obj.parent = parent_obj
+            obj.matrix_parent_inverse = obj.parent.matrix_basis.inverted()
+        return obj
+        
+    @classmethod
+    def blender_to_xml(cls, obj, parent = None, child_map = None):
+        node = obj.dynamic_properties.to_node(ET.Element("None"))
+        curvedata = obj.data
+        spline = curvedata.splines[0]
+        path_node = node.find("Path")
+        curve_node = ET.SubElement(path_node, "BezierCurve")
+        minp = (float("inf"), float("inf"), float("inf"))
+        maxp = (-float("inf"), -float("inf"), -float("inf"))
+        for bezier_point in spline.bezier_points:
+            point_node = ET.SubElement(curve_node, "None")
+            p = bezier_point.co
+            p = (-p[0], p[2], -p[1])
+            minp = (min(p[0], minp[0]), min(p[1], minp[1]), min(p[2], minp[2]))
+            maxp = (max(p[0], maxp[0]), max(p[1], maxp[1]), max(p[2], maxp[2]))
+            i = bezier_point.handle_left
+            i = (-i[0] - p[0], i[2]- p[1], -i[1]- p[2])
+            o = bezier_point.handle_right
+            o = (-o[0]- p[0], o[2]- p[1], -o[1]- p[2])
+            
+            ET.SubElement(point_node, "p").text = ' '.join([format_float(f) for f in p])
+            ET.SubElement(point_node, "i").text = ' '.join([format_float(f) for f in i])
+            ET.SubElement(point_node, "o").text = ' '.join([format_float(f) for f in o])
+        
+        min_node = find_or_create(path_node, "Minimum")
+        max_node = find_or_create(path_node, "Maximum")
+        min_node.text = ' '.join([format_float(f) for f in minp])
+        max_node.text = ' '.join([format_float(f) for f in maxp])
+        return node
+
 
 class AssetsXML():
     instance = None
@@ -1927,6 +2040,7 @@ class GameObject:
                 <Scale>1.5</Scale>
             </Mesh>
             <SoundEmitter />
+            <BezierPath/>
         </None>
         """
         obj = cls.add_blender_object_to_scene(node)
@@ -1950,6 +2064,11 @@ class GameObject:
         
         transform = Transform(location, rotation, scale, anno_coords = True)
         transform.apply_to(obj)
+        
+        bezier_node = node.find("BezierPath")
+        if bezier_node is not None:
+            if BezierCurve.is_valid_bezier_curve_node(bezier_node):
+                bezier_obj = BezierCurve.xml_to_blender(bezier_node, obj)
 
         obj.dynamic_properties.from_node(node)
         
@@ -1995,8 +2114,14 @@ class GameObject:
                 ET.SubElement(mesh_node, "Scale").text =  scale[0].replace(".", ",")
         else:
             ET.SubElement(mesh_node, "Scale").text = ' '.join(scale).replace(".", ",")
-
+        for child in obj.children:
+            if get_anno_object_class(child) == BezierCurve:
+                bezier_node = BezierCurve.blender_to_xml(child, node, child_map)
+                node.append(bezier_node)
         return node
+    
+    
+
 class IslandGamedataFile:
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
@@ -2031,7 +2156,6 @@ class IslandGamedataFile:
                 obj_id = get_text(obj_node, "ID")
                 objects_node_by_id[obj_id] = objects_node
                 objects_node.remove(obj_node)
-        
         for obj in bpy.data.objects:
             if get_anno_object_class(obj) != GameObject:
                 continue
@@ -2051,7 +2175,7 @@ anno_object_classes = [
     NoAnnoObject, MainFile, Model, Cf7File,
     SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup,
     Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig,SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, Material, IfoFile, Spline, IslandFile, PropGridInstance,
-    IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequences, AnimationSequence, Track, TrackElement, IfoMeshHeightmap,
+    IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequences, AnimationSequence, Track, TrackElement, IfoMeshHeightmap,BezierCurve,
 ]
 
 def str_to_class(classname):
@@ -2073,6 +2197,7 @@ def register():
     bpy.types.Object.anno_object_class_str = bpy.props.EnumProperty(name="Anno Object Class", description = "Determines the type of the object.",
                                                                 items = [(cls.__name__, cls.__name__, cls.__name__) for cls in anno_object_classes]
                                                                 , default = "NoAnnoObject")
+    
     #CollectionProperty(type = AnnoImageTextureProperties)
 
 def unregister():
