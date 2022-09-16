@@ -23,7 +23,7 @@ from .transform import Transform
 from .material import Material, ClothMaterial
 from .feedback_ui import FeedbackConfigItem, GUIDVariationListItem, FeedbackSequenceListItem
 from . import feedback_enums
-
+import numpy as np
 
 def convert_to_glb(fullpath: Path):
     rdm4_path = IO_AnnocfgPreferences.get_path_to_rdm4()
@@ -1627,7 +1627,6 @@ class IslandFile:
     
     @classmethod
     def xml_to_blender(cls, node: ET.Element, prop_import_mode) -> BlenderObject:
-        import numpy as np
         
         obj = cls.add_blender_object_to_scene(node)
         obj["islandxml"] = ET.tostring(node)
@@ -1692,7 +1691,7 @@ class IslandFile:
                 # flatten list
                 # pixels = [chan for px in pixels for chan in px]
                 image.pixels = np_array.ravel()
-                image.filepath_raw = "C:/Users/Lars/test.png"
+                image.filepath_raw = "C:/Users/test.png"
                 image.file_format = 'PNG'
                 # image.save()
                 # bpy.context.scene.render.image_settings.color_depth = '16'
@@ -1705,7 +1704,7 @@ class IslandFile:
                 settings.file_format = 'PNG'
                 settings.color_mode = 'BW'
                 # Save with scene
-                image.save_render('C:/Users/Lars/test_smart.png', scene = scene)
+                image.save_render('C:/Users/test_smart.png', scene = scene)
                 #Reset settings
                 settings.color_depth = old_color_depth
                 settings.file_format = old_format
@@ -2129,21 +2128,80 @@ class IslandGamedataFile:
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         file_obj = add_empty_to_scene()  
         return file_obj
-    
+    @classmethod
+    def create_maps(cls, node: ET.Element):
+        bit_map_nodes = [
+            node.find("./GameSessionManager/WorldManager/Water"),
+            node.find("./GameSessionManager/WorldManager/RiverGrid"),
+        ]
+        for map_node in bit_map_nodes:
+            if map_node is None:
+                continue
+            width = int(get_text(map_node, "x", "0"))
+            height = int(get_text(map_node, "y", "0"))
+            byte_data = [int(i) for i in get_text(map_node, "bits").split(" ")]
+            data = [0] * (width*height)
+            for i, byte in enumerate(byte_data):
+                bytestring = "{0:08b}".format(byte)[::-1]
+                for j, bit in enumerate(bytestring):
+                    data[i*8 + j] = int(bit)
+            image = bpy.data.images.new(map_node.tag, width=width, height=height)
+            pixels = [None] * width * height
+            np_array = np.zeros((width,height,4), dtype = np.float16)
+            for x, row in enumerate(np_array):
+                for y, pix in enumerate(row):
+                    index = ((x * np_array.shape[0]) + y)
+                    h = data[index]
+                    pix[0] = h
+                    pix[1] = h
+                    pix[2] = h
+                    pix[3] = 1.0
+            image.pixels = np_array.ravel()
+            image.filepath_raw = f"C:/Users/{map_node.tag}.png"
+            image.file_format = 'PNG'
+            image.save()
+        val_map_nodes = [
+            node.find("./GameSessionManager/WorldManager/EnvironmentGrid/EnvironmentGRid"),
+            node.find("./GameSessionManager/AreaIDs"), #int16, but still looks somewhat wrong.
+        ]
+        for map_node in val_map_nodes:
+            if map_node is None:
+                continue
+            width = int(get_text(map_node, "x", "0"))
+            height = int(get_text(map_node, "y", "0"))
+            data = [int(i) for i in get_text(map_node, "val").split(" ")]
+            print(width*height, len(data), len(data)/width/height)
+            image = bpy.data.images.new(map_node.tag, width=width, height=height)
+            pixels = [None] * width * height
+            np_array = np.zeros((width,height,4), dtype = np.float16)
+            for x, row in enumerate(np_array):
+                for y, pix in enumerate(row):
+                    index = (x * np_array.shape[0]) + y
+                    upper_byte = data[index] & (1<<16)-(1<<8)
+                    lower_byte = data[index] & (1<<8)
+                    pix[0] = upper_byte / 255.0
+                    pix[1] = lower_byte / 255.0
+                    pix[2] = 0.0
+                    pix[3] = 1.0
+            image.pixels = np_array.ravel()
+            image.filepath_raw = f"C:/Users/{map_node.tag}.png"
+            image.file_format = 'PNG'
+            image.save()
+            
     @classmethod
     def xml_to_blender(cls, node: ET.Element, assetsXML) -> BlenderObject:
         obj = cls.add_blender_object_to_scene(node)
         obj["islandgamedataxml"] = ET.tostring(node)
         obj.name = "ISLAND_GAMEDATA_FILE"
         set_anno_object_class(obj, cls)
-        
+        #create_maps(node)
         
         objects_nodes = node.findall("./GameSessionManager/AreaManagerData/None/Data/Content/AreaObjectManager/GameObject/objects")
         for c, objects_node in enumerate(objects_nodes):
             for i, obj_node in enumerate(objects_node):
                 print(f"Container {c+1} / {len(objects_nodes)}; Object {i+1} / {len(objects_node)},")
                 GameObject.xml_to_blender(obj_node, assetsXML)
-                
+    
     @classmethod
     def blender_to_xml(cls, obj, randomize_ids = False):
         """Only exports the prop grid. Not the heighmap or the prop FileNames."""
