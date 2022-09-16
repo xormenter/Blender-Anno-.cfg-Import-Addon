@@ -626,7 +626,11 @@ class MakeCollectionInstanceReal(Operator):
     bl_label = "Make Collection Instance Real"
 
     def execute(self, context):
-        bpy.ops.object.duplicates_make_real(use_base_parent=False, use_hierarchy=True)
+        obj = bpy.context.active_object
+        bpy.ops.object.duplicates_make_real(use_base_parent=True, use_hierarchy=True)
+        for child in obj.children:
+            child.parent = obj.parent
+        bpy.data.objects.remove(obj, do_unlink=True)
         return {'FINISHED'}
     
     @classmethod

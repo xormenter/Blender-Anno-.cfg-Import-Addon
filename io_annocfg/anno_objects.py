@@ -58,6 +58,7 @@ def import_model_to_scene(data_path: Union[str, Path, None]) -> BlenderObject:
     ret = bpy.ops.import_scene.gltf(filepath=str(fullpath))
     obj = bpy.context.active_object
     print(obj.name, obj.type)
+    Transform.mirror_mesh(obj)
     return obj
 
 def convert_animation_to_glb(model_fullpath, animation_fullpath: Path):
@@ -96,6 +97,7 @@ def import_animated_model_to_scene(model_data_path: Union[str, Path, None], anim
     ret = bpy.ops.import_scene.gltf(filepath=str(combined_path))
     obj = bpy.context.active_object
     print(obj.name, obj.type)
+    Transform.mirror_mesh(obj)
     return obj
 
 def add_empty_to_scene(empty_type: str = "SINGLE_ARROW") -> BlenderObject:
