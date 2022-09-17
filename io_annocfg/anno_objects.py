@@ -714,6 +714,7 @@ class Decal(AnnoObject):
         obj = bpy.context.active_object
         for v in obj.data.vertices:
             v.co.y *= -1.0
+            v.co.x *= -1.0
         return obj   
     
     @classmethod
@@ -1040,7 +1041,7 @@ class IfoMeshHeightmap(AnnoObject):
         mesh.from_pydata(verts, [], [])
         for i, vert in enumerate(obj.data.vertices):
             vert.co.y *= -1
-            
+            vert.co.x *= -1
         return obj
 
     @classmethod 
