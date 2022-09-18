@@ -437,7 +437,7 @@ class Track(AnnoObject):
     @classmethod
     def node_to_property_node(self, node, obj):
         for track_node in node.findall("TrackElement"):
-            if get_text(track_node, "Type", "-1") != "0":
+            if get_text(track_node, "Type", "-1") not in  ["0", "1"]:
                 continue
             model_id = int(get_text(track_node, "ModelID", "-1"))
             main_file = obj.parent.parent.parent
@@ -539,7 +539,9 @@ class Model(AnnoObject):
         data_path = get_text(node, "FileName")
         imported_obj = import_model_to_scene(data_path)
         if imported_obj is None:
-            return add_empty_to_scene()
+            bpy.ops.mesh.primitive_cube_add(size = 0.1, location=(0,0,0))
+            obj = bpy.context.active_object
+            return obj
         return imported_obj
     
     @classmethod
