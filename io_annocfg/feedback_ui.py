@@ -362,6 +362,12 @@ class FEEDBACK_OT_LoadFeedbackUnit(Operator):
         
         unit_obj = self.import_cfg_file(data_path_to_absolute_path(cfg), "FeedbackUnit_"+name)
         bpy.context.view_layer.objects.active = unit_obj
+        
+        #If the model was loaded from cache, it only is an instanced collection
+        if unit_obj.instance_collection is not None:
+            print("Loaded feedback unit from cache, making it real.")
+            bpy.ops.object.make_hierarchical_collection_instance_real()
+        
         bpy.ops.object.load_all_animations()
         # bpy.context.view_layer.objects.active = unit_obj
         # bpy.ops.object.ShowSequence()

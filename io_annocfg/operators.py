@@ -927,6 +927,7 @@ class ImportAllCfgsOperator(Operator, ImportHelper):
         rda_path = IO_AnnocfgPreferences.get_path_to_rda_folder()
         if not dirpath.is_relative_to(rda_path):
             self.report({'ERROR_INVALID_INPUT'}, f"Invalid folder. Needs to be inside your rda folder.")
+            print(f"{dirpath}, {rda_path}, {dirpath.is_relative_to(rda_path)}")
             return {"CANCELLED"}
         if not dirpath.is_dir():
             self.report({'ERROR_INVALID_INPUT'}, f"Invalid folder. Needs to be inside your rda folder.")

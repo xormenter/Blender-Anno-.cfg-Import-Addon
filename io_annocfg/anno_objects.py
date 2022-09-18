@@ -437,6 +437,8 @@ class Track(AnnoObject):
     @classmethod
     def node_to_property_node(self, node, obj):
         for track_node in node.findall("TrackElement"):
+            if get_text(track_node, "Type", "-1") != "0":
+                continue
             model_id = int(get_text(track_node, "ModelID", "-1"))
             main_file = obj.parent.parent.parent
             for o in main_file.children:
@@ -846,6 +848,18 @@ class Light(AnnoObject):
         diffuse_b = float(get_text_and_delete(node, "Diffuse.b", "1.0"))
         diffuse_color = [diffuse_r, diffuse_g, diffuse_b]
         obj.data.color = diffuse_color
+        
+        for transform_node in node.findall("Transformer/Config/ModelID/.."):
+            model_id = int(get_text(transform_node, "ModelID", "-1"))
+            main_file = obj.parent
+            for o in main_file.children:
+                if get_anno_object_class(o) != Model:
+                    continue
+                if o["import_index"] == model_id:
+                    model_name = o.name
+                    transform_node.remove(transform_node.find("ModelID"))
+                    ET.SubElement(transform_node, "BlenderModelID").text = model_name
+        
         return node
     @classmethod
     def property_node_to_node(self, property_node, obj):
@@ -885,7 +899,20 @@ class Particle(AnnoObject):
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         obj = add_empty_to_scene("SPHERE")   
         return obj
-
+    
+    @classmethod
+    def node_to_property_node(self, node, obj):
+        for transform_node in node.findall("Transformer/Config/ModelID/.."):
+            model_id = int(get_text(transform_node, "ModelID", "-1"))
+            main_file = obj.parent
+            for o in main_file.children:
+                if get_anno_object_class(o) != Model:
+                    continue
+                if o["import_index"] == model_id:
+                    model_name = o.name
+                    transform_node.remove(transform_node.find("ModelID"))
+                    ET.SubElement(transform_node, "BlenderModelID").text = model_name
+        return node
 
 class ArbitraryXMLAnnoObject(AnnoObject):
     xml_template = """<T></T>"""
@@ -1474,6 +1501,26 @@ class MainFile(AnnoObject):
         for i, model_node in enumerate(node.findall("Models/Config")):
             model_index_by_name[get_text(model_node, "Name")] = i
         for track_element_node in node.findall("Sequences/Config/Track/TrackElement/BlenderModelID/.."):
+            blender_model_id_node = track_element_node.find("BlenderModelID")
+            blender_model_id = blender_model_id_node.text
+            model_name = Model.anno_name_from_blender_object(NamedMockObject(blender_model_id))
+            if model_name not in model_index_by_name:
+                print(f"Error: Could not resolve BlenderModelID {blender_model_id}: No model named {model_name}. Using model 0 instead.")
+            model_id = model_index_by_name.get(model_name, 0)
+            track_element_node.remove(blender_model_id_node)
+            ET.SubElement(track_element_node, "ModelID").text = str(model_id)
+        #particles with model ID
+        for track_element_node in node.findall("Particles/Config/Transformer/Config/BlenderModelID/.."):
+            blender_model_id_node = track_element_node.find("BlenderModelID")
+            blender_model_id = blender_model_id_node.text
+            model_name = Model.anno_name_from_blender_object(NamedMockObject(blender_model_id))
+            if model_name not in model_index_by_name:
+                print(f"Error: Could not resolve BlenderModelID {blender_model_id}: No model named {model_name}. Using model 0 instead.")
+            model_id = model_index_by_name.get(model_name, 0)
+            track_element_node.remove(blender_model_id_node)
+            ET.SubElement(track_element_node, "ModelID").text = str(model_id)
+        #lights with model ID
+        for track_element_node in node.findall("Lights/Config/Transformer/Config/BlenderModelID/.."):
             blender_model_id_node = track_element_node.find("BlenderModelID")
             blender_model_id = blender_model_id_node.text
             model_name = Model.anno_name_from_blender_object(NamedMockObject(blender_model_id))
