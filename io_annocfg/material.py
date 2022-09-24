@@ -201,11 +201,13 @@ class Material:
         texture_path = Path(texture_path)
         texture_path = Path(texture_path.parent, texture_path.stem + self.texture_quality_suffix()+".dds")
         png_file = texture_path.with_suffix(".png")
-        image = bpy.data.images.get(str(png_file.name), None)
-        if image is not None:
-            return image
         fullpath = data_path_to_absolute_path(texture_path)
         png_fullpath = data_path_to_absolute_path(png_file)
+        image = bpy.data.images.get(str(png_file.name), None)
+        if image is not None:
+            image_path_full = os.path.normpath(bpy.path.abspath(image.filepath, library=image.library))
+            if str(image_path_full) == str(png_fullpath):
+                return image
         if not png_fullpath.exists():
             success = self.convert_to_png(fullpath)
             if not success:
