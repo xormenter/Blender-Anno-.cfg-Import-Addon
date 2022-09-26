@@ -19,10 +19,10 @@ from typing import Tuple, List, NewType, Any, Union, Dict, Optional, TypeVar, Ty
 from . import feedback_enums
 from .simple_anno_feedback_encoding import SimpleAnnoFeedbackEncoding
 from .prefs import IO_AnnocfgPreferences
-from .anno_objects import get_anno_object_class, Transform, AnnoObject, MainFile, Model, SimpleAnnoFeedbackEncodingObject, \
-    SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup, \
+from .anno_objects import get_anno_object_class, anno_object_classes, Transform, AnnoObject, MainFile, Model, SimpleAnnoFeedbackEncodingObject, \
+    SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup, ArbitraryXMLAnnoObject, Material, \
     Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig, Light, IfoFile, Cf7File, IslandFile, PropGridInstance, IslandGamedataFile, AssetsXML,\
-    Animation, Cloth
+    Animation, Cloth, BezierCurve, GameObject, AnimationsNode, AnimationSequences, AnimationSequence, Track, TrackElement, IfoMeshHeightmap,BezierCurve,Spline
 
 
 from .utils import data_path_to_absolute_path, to_data_path
@@ -372,6 +372,16 @@ class ImportAnnoIsland(Operator, ImportHelper):
         options={'HIDDEN'},
         maxlen=255,  # Max internal buffer length, longer would be clamped.
     )
+    
+    prop_import: EnumProperty( #type: ignore
+        default="All",
+        items = [
+            ("All", "All", "Import all props"),
+            ("No Vegetation", "No Vegetation", ""),
+            ("None", "None", "Imports no props at all."),
+        ],
+        name = "Props"
+    )
 
     def execute(self, context):
         self.path = Path(self.filepath)
@@ -392,26 +402,57 @@ class ImportAnnoIsland(Operator, ImportHelper):
             self.report({'ERROR_INVALID_INPUT'}, f"Invalid file or extension")
             return {'CANCELLED'}
         
-        if "gamedata" in self.path.stem:
-            print(self.path.name, " is a gamedata island file.")
-            tree = ET.parse(self.path)
-            root = tree.getroot()
+        # if "gamedata" in self.path.stem:
+        #     print(self.path.name, " is a gamedata island file.")
+        #     tree = ET.parse(self.path)
+        #     root = tree.getroot()
             
-            assetsXML = AssetsXML()
+        #     assetsXML = AssetsXML()
             
-            file_obj = IslandGamedataFile.xml_to_blender(root, assetsXML)
+        #     file_obj = IslandGamedataFile.xml_to_blender(root, assetsXML)
             
-            self.report({'INFO'}, "Import completed!")
-            return {"FINISHED"}
+        #     self.report({'INFO'}, "Import completed!")
+        #     return {"FINISHED"}
         
         tree = ET.parse(self.path)
         root = tree.getroot()
         
-        file_obj = IslandFile.xml_to_blender(root)
+        file_obj = IslandFile.xml_to_blender(root, self.prop_import)
         file_obj.name = "ISLAND_" + self.path.name
 
         self.report({'INFO'}, "Import completed!")
         return {'FINISHED'}
+
+class ImportAnnoIslandGamedata(Operator, ImportHelper):
+    """Parses decoded Anno 1800 island gamedata xml files and loads them into blender."""
+    bl_idname = "import.anno_island_gamedata_files" 
+    bl_label = "Import Anno Island Gamedata Files (.xml)"
+
+    # ImportHelper mixin class uses this
+    filename_ext = ".xml"
+
+    filter_glob: StringProperty( #type:  ignore
+        default="*.xml",
+        options={'HIDDEN'},
+        maxlen=255,  # Max internal buffer length, longer would be clamped.
+    )
+
+    def execute(self, context):
+        self.path = Path(self.filepath)
+        
+        if not self.path.suffix == ".xml" or not self.path.exists():
+            self.report({'ERROR_INVALID_INPUT'}, f"Invalid file or extension")
+            return {'CANCELLED'}
+        tree = ET.parse(self.path)
+        root = tree.getroot()
+        
+        assetsXML = AssetsXML()
+        
+        file_obj = IslandGamedataFile.xml_to_blender(root, assetsXML)
+        
+        self.report({'INFO'}, "Import completed!")
+        return {"FINISHED"}
+
 
 class ExportAnnoIsland(Operator, ExportHelper):
     """Exports the prop grid elements of an island file. Not the heightmap, etc. Cannot handle new props (yet). Exports ALL objects in this scene, so do not load multiple islands at once."""
@@ -430,7 +471,7 @@ class ExportAnnoIsland(Operator, ExportHelper):
     def execute(self, context):
         self.path = Path(self.filepath)
         self.obj = context.active_object
-        if not self.obj or not get_anno_object_class(self.obj) in [IslandFile, IslandGamedataFile]:
+        if not self.obj or not get_anno_object_class(self.obj) in [IslandFile]:
             self.report({'ERROR_INVALID_CONTEXT'}, f"ISLAND_FILE object needs to be selected.")
             return {'CANCELLED'}
         
@@ -447,7 +488,45 @@ class ExportAnnoIsland(Operator, ExportHelper):
     def poll(cls, context):
         if not context.active_object:
             return False
-        return get_anno_object_class(context.active_object) in [IslandFile, IslandGamedataFile]
+        return get_anno_object_class(context.active_object) in [IslandFile]
+    
+    
+
+class ExportAnnoIslandGamedata(Operator, ExportHelper):
+    """Exports the IslandGamedata Objects. Exports ALL objects in this scene, so do not load multiple islands at once."""
+    bl_idname = "export.anno_island_gamedata_files" 
+    bl_label = "Export Anno Island Gamedata Files (.xml)"
+
+    # ImportHelper mixin class uses this
+    filename_ext = ".xml"
+
+    filter_glob: StringProperty( #type:  ignore
+        default="*.xml",
+        options={'HIDDEN'},
+        maxlen=255,  # Max internal buffer length, longer would be clamped.
+    )
+
+    def execute(self, context):
+        self.path = Path(self.filepath)
+        self.obj = context.active_object
+        if not self.obj or not get_anno_object_class(self.obj) in [IslandGamedataFile]:
+            self.report({'ERROR_INVALID_CONTEXT'}, f"ISLAND_FILE object needs to be selected.")
+            return {'CANCELLED'}
+        
+        root = get_anno_object_class(self.obj).blender_to_xml(self.obj)
+        if root is None:
+            return{'CANCELLED'}
+        tree = ET.ElementTree(root)
+        ET.indent(tree, space="\t", level=0)
+        tree.write(self.filepath)
+        self.report({'INFO'}, 'Island export completed.')
+        
+        return {'FINISHED'}
+    @classmethod
+    def poll(cls, context):
+        if not context.active_object:
+            return False
+        return get_anno_object_class(context.active_object) in [IslandGamedataFile]
     
 
 class ImportAnnoModelOperator(Operator, ImportHelper):
@@ -848,6 +927,7 @@ class ImportAllCfgsOperator(Operator, ImportHelper):
         rda_path = IO_AnnocfgPreferences.get_path_to_rda_folder()
         if not dirpath.is_relative_to(rda_path):
             self.report({'ERROR_INVALID_INPUT'}, f"Invalid folder. Needs to be inside your rda folder.")
+            print(f"{dirpath}, {rda_path}, {dirpath.is_relative_to(rda_path)}")
             return {"CANCELLED"}
         if not dirpath.is_dir():
             self.report({'ERROR_INVALID_INPUT'}, f"Invalid folder. Needs to be inside your rda folder.")
@@ -883,6 +963,9 @@ class ImportAllCfgsOperator(Operator, ImportHelper):
             bpy.ops.ed.lib_id_generate_preview({"id": collection})
         return {"FINISHED"}
 
+
+
+
 classes = (
     ExportAnnoCfg,
     ImportAnnoCfg,
@@ -893,7 +976,9 @@ classes = (
     ImportAllPropsOperator,
     ImportAllCfgsOperator,
     ImportAnnoIsland,
+    ImportAnnoIslandGamedata,
     ExportAnnoIsland,
+    ExportAnnoIslandGamedata,
     # ExportAnimatedAnnoModelOperator,
 )
 
@@ -930,20 +1015,27 @@ def menu_func_import_all_cfgs(self, context):
 
 def menu_func_import_island(self, context):
     self.layout.operator(ImportAnnoIsland.bl_idname, text="Anno Island (.xml)")
+def menu_func_import_island_gamedata(self, context):
+    self.layout.operator(ImportAnnoIslandGamedata.bl_idname, text="Anno Island Gamedata (.xml)")
 
 def menu_func_export_island(self, context):
     self.layout.operator(ExportAnnoIsland.bl_idname, text="Anno Island (.xml)")
+
+def menu_func_export_island_gamedata(self, context):
+    self.layout.operator(ExportAnnoIslandGamedata.bl_idname, text="Anno Island Gamedata (.xml)")
 
 import_funcs = [
     menu_func_import,
     menu_func_import_model,
     menu_func_import_prop,
     menu_func_import_island,
+    menu_func_import_island_gamedata,
 ]
 export_funcs = [
     menu_func_export_cfg,
     menu_func_export_model,
     menu_func_export_island,
+    menu_func_export_island_gamedata,
     # menu_func_export_animation,
 ]
 

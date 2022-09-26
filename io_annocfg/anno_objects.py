@@ -7,7 +7,7 @@ import os
 import random
 import re
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Tuple, List, NewType, Any, Union, Dict, Optional, TypeVar, Type
 from abc import ABC, abstractmethod
 from bpy.props import EnumProperty, BoolProperty, PointerProperty, IntProperty, FloatProperty, CollectionProperty, StringProperty, FloatVectorProperty
@@ -23,7 +23,7 @@ from .transform import Transform
 from .material import Material, ClothMaterial
 from .feedback_ui import FeedbackConfigItem, GUIDVariationListItem, FeedbackSequenceListItem
 from . import feedback_enums
-
+import numpy as np
 
 def convert_to_glb(fullpath: Path):
     rdm4_path = IO_AnnocfgPreferences.get_path_to_rdm4()
@@ -58,6 +58,7 @@ def import_model_to_scene(data_path: Union[str, Path, None]) -> BlenderObject:
     ret = bpy.ops.import_scene.gltf(filepath=str(fullpath))
     obj = bpy.context.active_object
     print(obj.name, obj.type)
+    Transform.mirror_mesh(obj)
     return obj
 
 def convert_animation_to_glb(model_fullpath, animation_fullpath: Path):
@@ -96,6 +97,7 @@ def import_animated_model_to_scene(model_data_path: Union[str, Path, None], anim
     ret = bpy.ops.import_scene.gltf(filepath=str(combined_path))
     obj = bpy.context.active_object
     print(obj.name, obj.type)
+    Transform.mirror_mesh(obj)
     return obj
 
 def add_empty_to_scene(empty_type: str = "SINGLE_ARROW") -> BlenderObject:
@@ -183,6 +185,14 @@ class AnnoObject(ABC):
                 node.remove(subnode)
         
     @classmethod
+    def get_next_mainfile_parent(cls, obj):
+        if obj.parent is None:
+            return None
+        if get_anno_object_class(obj.parent) == MainFile:
+            return obj.parent
+        return get_next_mainfile_parent(cls, obj.parent)
+            
+    @classmethod
     def xml_to_blender(cls: Type[T], node: ET.Element, parent_object = None) -> BlenderObject:
 
         obj = cls.add_blender_object_to_scene(node)
@@ -212,6 +222,20 @@ class AnnoObject(ABC):
             cls.apply_materials_to_object(obj, materials)
         
         cls.add_children_from_xml(node, obj)
+        
+        #Take care of modelID in transformers
+        for transform_node in node.findall("Transformer/Config/ModelID/.."):
+            model_id = int(get_text(transform_node, "ModelID", "-1"))
+            main_file = cls.get_next_mainfile_parent(obj)
+            for o in main_file.children:
+                if get_anno_object_class(o) != Model:
+                    continue
+                if o.get("import_index", -2) == model_id:
+                    model_name = o.name
+                    transform_node.remove(transform_node.find("ModelID"))
+                    ET.SubElement(transform_node, "BlenderModelID").text = model_name
+                    break
+        
         node = cls.node_to_property_node(node, obj)
         obj.dynamic_properties.from_node(node)
 
@@ -226,7 +250,11 @@ class AnnoObject(ABC):
     @classmethod
     def add_children_from_obj(cls, obj, node, child_map):
         container_name_by_subclass = {subcls : container_name for container_name, subcls in cls.child_anno_object_types.items()}
-        for child_obj in child_map.get(obj.name, []):
+        children = obj.children
+        if child_map is not None:
+            #ToDo: Do not use child map if it is not necessary. I think there were problems with obj.children, but i do not remember them.
+            children = child_map.get(obj.name, [])
+        for child_obj in children:
             subcls = get_anno_object_class(child_obj)
             if subcls == NoAnnoObject:
                 continue
@@ -431,6 +459,8 @@ class Track(AnnoObject):
     @classmethod
     def node_to_property_node(self, node, obj):
         for track_node in node.findall("TrackElement"):
+            if get_text(track_node, "Type", "-1") not in  ["0", "1"]:
+                continue
             model_id = int(get_text(track_node, "ModelID", "-1"))
             main_file = obj.parent.parent.parent
             for o in main_file.children:
@@ -531,7 +561,9 @@ class Model(AnnoObject):
         data_path = get_text(node, "FileName")
         imported_obj = import_model_to_scene(data_path)
         if imported_obj is None:
-            return add_empty_to_scene()
+            bpy.ops.mesh.primitive_cube_add(size = 0.1, location=(0,0,0))
+            obj = bpy.context.active_object
+            return obj
         return imported_obj
     
     @classmethod
@@ -540,14 +572,22 @@ class Model(AnnoObject):
         if node.find("Animations") is not None:
             return
         #Animations may have been loaded.
-        for child_obj in child_map.get(obj.name, []):
+        children = obj.children
+        if child_map is not None:
+            #ToDo: Do not use child map if it is not necessary. I think there were problems with obj.children, but i do not remember them.
+            children = child_map.get(obj.name, [])
+        for child_obj in children:
             subcls = get_anno_object_class(child_obj)
             if subcls != AnimationsNode:
                 continue
             animations_container = child_obj
             animations_node = find_or_create(node, "Animations")
             anim_nodes = []
-            for anim_obj in child_map.get(animations_container.name, []):
+            anim_children = animations_container.children
+            if child_map is not None:
+                #ToDo: Do not use child map if it is not necessary. I think there were problems with obj.children, but i do not remember them.
+                anim_children = child_map.get(animations_container.name, [])
+            for anim_obj in anim_children:
                 subcls = get_anno_object_class(anim_obj)
                 if subcls != Animation:
                     continue
@@ -557,6 +597,11 @@ class Model(AnnoObject):
             for anim_node in anim_nodes:
                 anim_node.remove(anim_node.find("AnimationIndex"))
                 animations_node.append(anim_node)
+
+def recursive_add_to_collection(obj, collection):
+    collection.objects.link(obj)
+    for c in obj.children:
+        recursive_add_to_collection(c, collection)
 
 class SubFile(AnnoObject):
     has_transform = True
@@ -577,13 +622,79 @@ class SubFile(AnnoObject):
     has_materials = False
     
     @classmethod 
+    def try_loading_from_library(cls, data_path, last_modified):
+        from datetime import datetime
+        libpath = IO_AnnocfgPreferences.get_cfg_cache_path()
+        p = Path(libpath, Path(data_path + ".blend"))
+        if p.exists():
+            cache_last_modified = p.stat().st_mtime
+            if cache_last_modified < last_modified:
+                print(f"Cache Invalidation for {p}, modified {data_path} at {datetime.fromtimestamp(last_modified)}, last cache update at {datetime.fromtimestamp(cache_last_modified)}")
+                p.unlink()
+                return None
+            
+            with bpy.data.libraries.load(str(p)) as (data_from, data_to):
+                data_to.collections = data_from.collections
+            for new_coll in data_to.collections:
+                if Path(data_path).name in new_coll.name:
+                    instance = bpy.data.objects.new(new_coll.name, None)
+                    instance.instance_type = 'COLLECTION'
+                    instance.instance_collection = new_coll
+                    bpy.context.scene.collection.objects.link(instance)
+                    print(f"Loaded {Path(data_path).name} from lib")
+                    return instance
+            print(f"Warning: Failed to load {Path(data_path).name} from existing cache file {p}")
+        return None
+    
+    @classmethod 
+    def cache_to_library(cls, file_obj, data_path):
+        print(f"Caching {data_path} in library")
+        libpath = IO_AnnocfgPreferences.get_cfg_cache_path()
+        if not libpath.exists():
+            print(f"Warning, invalid cfg cache path {libpath}")
+            return 
+        p = Path(libpath, Path(data_path).parent)
+        p.mkdir(parents=True, exist_ok=True)
+        
+        
+        collection = bpy.data.collections.new(file_obj.name)
+        bpy.context.scene.collection.children.link(collection)
+        
+        collection.asset_mark()
+        collection.asset_data.tags.new("cfg")
+        collection.asset_data.description = data_path
+        for directory in PurePath(data_path).parts[:-1]:
+            if directory not in ["graphics", "data"]:
+                collection.asset_data.tags.new(directory)
+        bpy.ops.ed.lib_id_generate_preview({"id": collection})
+        
+        
+        recursive_add_to_collection(file_obj, collection)
+        objects = []
+        for obj in collection.all_objects:
+            objects.append(obj)
+        objects.append(collection)
+        filename = f"{Path(data_path).name}.blend"
+        filepath = Path(p, filename)
+        bpy.data.libraries.write(str(filepath), set(objects), fake_user=True)
+        bpy.context.scene.collection.children.unlink(collection)
+        bpy.data.collections.remove(collection)
+        
+    @classmethod 
     def load_subfile(cls, data_path):
         if data_path is None:
             return add_empty_to_scene()
-        
         fullpath = data_path_to_absolute_path(data_path)
         if not fullpath.exists():
             return add_empty_to_scene()
+        
+        last_modified = fullpath.stat().st_mtime
+        
+        if IO_AnnocfgPreferences.cfg_cache_loading_enabled(): #ToDo: Remove True here!!!
+            file_obj = cls.try_loading_from_library(data_path, last_modified)
+            if file_obj is not None:
+                return file_obj
+        
         tree = ET.parse(fullpath)
         root = tree.getroot()
         if root is None:
@@ -591,9 +702,12 @@ class SubFile(AnnoObject):
         
         file_obj = MainFile.xml_to_blender(root)
         file_obj.name = "MAIN_FILE_" + fullpath.name
+        
+        if random.random() < IO_AnnocfgPreferences.cfg_cache_probability():
+            cls.cache_to_library(file_obj, data_path)
         return file_obj
-        
-        
+    
+    
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         subfile_obj = add_empty_to_scene()
@@ -626,6 +740,7 @@ class Decal(AnnoObject):
         obj = bpy.context.active_object
         for v in obj.data.vertices:
             v.co.y *= -1.0
+            v.co.x *= -1.0
         return obj   
     
     @classmethod
@@ -797,7 +912,6 @@ class Particle(AnnoObject):
         obj = add_empty_to_scene("SPHERE")   
         return obj
 
-
 class ArbitraryXMLAnnoObject(AnnoObject):
     xml_template = """<T></T>"""
     has_name = False
@@ -830,7 +944,11 @@ class IfoFile(AnnoObject):
     
     @classmethod
     def add_children_from_obj(cls, obj, node, child_map):
-        for child_obj in child_map.get(obj.name, []):
+        children = obj.children
+        if child_map is not None:
+            #ToDo: Do not use child map if it is not necessary. I think there were problems with obj.children, but i do not remember them.
+            children = child_map.get(obj.name, [])
+        for child_obj in children:
             subcls = get_anno_object_class(child_obj)
             if subcls == NoAnnoObject:
                 continue
@@ -948,7 +1066,7 @@ class IfoMeshHeightmap(AnnoObject):
         mesh.from_pydata(verts, [], [])
         for i, vert in enumerate(obj.data.vertices):
             vert.co.y *= -1
-            
+            vert.co.x *= -1
         return obj
 
     @classmethod 
@@ -1036,7 +1154,11 @@ class DummyGroup(AnnoObject):
 
     @classmethod
     def add_children_from_obj(cls, obj, node, child_map):
-        for child_obj in child_map.get(obj.name, []):
+        children = obj.children
+        if child_map is not None:
+            #ToDo: Do not use child map if it is not necessary. I think there were problems with obj.children, but i do not remember them.
+            children = child_map.get(obj.name, [])
+        for child_obj in children:
             subcls = get_anno_object_class(child_obj)
             if subcls == NoAnnoObject:
                 continue
@@ -1254,7 +1376,11 @@ class Cf7File(AnnoObject):
     @classmethod
     def add_children_from_obj(cls, obj, node, child_map):
         dummy_groups_node = find_or_create(node, "DummyRoot/Groups")
-        for child_obj in child_map.get(obj.name, []):
+        children = obj.children
+        if child_map is not None:
+            #ToDo: Do not use child map if it is not necessary. I think there were problems with obj.children, but i do not remember them.
+            children = child_map.get(obj.name, [])
+        for child_obj in children:
             subcls = get_anno_object_class(child_obj)
             if subcls != Cf7DummyGroup:
                 continue
@@ -1262,7 +1388,7 @@ class Cf7File(AnnoObject):
         if not IO_AnnocfgPreferences.splines_enabled():
             return
         spline_data_node = find_or_create(node, "SplineData")
-        for spline_obj in child_map.get(obj.name, []):
+        for spline_obj in children:
             subcls = get_anno_object_class(spline_obj)
             if subcls != Spline:
                 continue
@@ -1372,15 +1498,16 @@ class MainFile(AnnoObject):
         model_index_by_name = {}
         for i, model_node in enumerate(node.findall("Models/Config")):
             model_index_by_name[get_text(model_node, "Name")] = i
-        for track_element_node in node.findall("Sequences/Config/Track/TrackElement/BlenderModelID/.."):
-            blender_model_id_node = track_element_node.find("BlenderModelID")
+            
+        for node_with_model_id in node.findall(".//BlenderModelID/.."):
+            blender_model_id_node = node_with_model_id.find("BlenderModelID")
             blender_model_id = blender_model_id_node.text
             model_name = Model.anno_name_from_blender_object(NamedMockObject(blender_model_id))
             if model_name not in model_index_by_name:
                 print(f"Error: Could not resolve BlenderModelID {blender_model_id}: No model named {model_name}. Using model 0 instead.")
             model_id = model_index_by_name.get(model_name, 0)
-            track_element_node.remove(blender_model_id_node)
-            ET.SubElement(track_element_node, "ModelID").text = str(model_id)
+            node_with_model_id.remove(blender_model_id_node)
+            ET.SubElement(node_with_model_id, "ModelID").text = str(model_id)
         #particles
         particle_index_by_name = {}
         for i, particle_node in enumerate(node.findall("Particles/Config")):
@@ -1412,6 +1539,8 @@ class PropGridInstance:
             o.empty_display_type = 'ARROWS'   
             return o
         prop_obj = prop_objects[index]
+        if prop_obj is None:
+            return None
         copy = prop_obj.copy()
         bpy.context.scene.collection.objects.link(copy)
         return copy
@@ -1431,6 +1560,8 @@ class PropGridInstance:
         </None>
         """
         obj = cls.add_blender_object_to_scene(node, prop_objects)
+        if obj is None:
+            return
         if parent_obj:
             obj.parent = parent_obj
         
@@ -1453,7 +1584,7 @@ class PropGridInstance:
         return obj
     
     @classmethod
-    def blender_to_xml(cls, obj):
+    def blender_to_xml(cls, obj, parent = None, child_map = None):
         base_node = obj.dynamic_properties.to_node(ET.Element("None"))
         node = ET.Element("None")
 
@@ -1486,7 +1617,7 @@ class IslandFile:
         file_obj = add_empty_to_scene()  
         return file_obj
     @classmethod
-    def blender_to_xml(cls, obj):
+    def blender_to_xml(cls, obj, parent = None, child_map = None):
         """Only exports the prop grid. Not the heighmap or the prop FileNames."""
         base_node = ET.fromstring(obj["islandxml"])
         
@@ -1522,7 +1653,8 @@ class IslandFile:
         return base_node
     
     @classmethod
-    def xml_to_blender(cls, node: ET.Element) -> BlenderObject:
+    def xml_to_blender(cls, node: ET.Element, prop_import_mode) -> BlenderObject:
+        
         obj = cls.add_blender_object_to_scene(node)
         obj["islandxml"] = ET.tostring(node)
         obj.name = "ISLAND_FILE"
@@ -1541,21 +1673,90 @@ class IslandFile:
             bpy.ops.mesh.landscape_add(subdivision_x=width, subdivision_y=height, mesh_size_x=grid_width*unit_scale, mesh_size_y=grid_width*unit_scale,
                                        height=0, refresh=True)
             terrain_obj = bpy.context.active_object
-            max_height = 30
+            max_height = 8192
             min_height = float(get_text(terrain_node,"MinMeshLevel", "0"))
             #0,03125
             for i, vert in enumerate(terrain_obj.data.vertices):
-                vert.co.z = data[i] / 8192 * 32
+                vert.co.z = data[i] / max_height * 32
                 vert.co.x *= -1
             terrain_obj.location.x -= grid_width*unit_scale/2
             terrain_obj.location.y -= grid_width*unit_scale/2
             terrain_obj.rotation_euler[2] = radians(90.0)
             
+            if False:
+                #Make a terrain texture
+                print("Making heightmap")
+                image = bpy.data.images.new("TerrainHeightmap", width=width, height=height)
+                pixels = [None] * width * height
+                maxh = 0.0
+                np_array = np.zeros((width,height,4), dtype = np.float16)
+                for x, row in enumerate(np_array):
+                    for y, pix in enumerate(row):
+                        index = (x * np_array.shape[0]) + y
+                        
+                        h = ((data[index]+max_height)/(2*max_height))
+                        pix[0] = h
+                        pix[1] = h
+                        pix[2] = h
+                        pix[3] = 1.0
+                        # For some reason, the height value does not convert correctly. Super weird...
+                        # In theory, after subtracting 0.5 and multiplying with 64, we should get the exact same heightmap...
+                # return obj
+                # for x in range(width):
+                #     for y in range(height):
+                #         index = (y * width) + x
+                #         h = (data[index]/8192.0*0.5)+0.5
+                        
+                #         maxh = max(maxh, data[index])
+                #         r = h
+                #         g = h
+                #         b = h
+                #         a = 1.0
+                #         np_array[index] = [r,g,b,a]
+                #         pixels[index] = [r, g, b, a]
+                # print("Maximum height value", maxh)
+                # flatten list
+                # pixels = [chan for px in pixels for chan in px]
+                image.pixels = np_array.ravel()
+                image.filepath_raw = "C:/Users/test.png"
+                image.file_format = 'PNG'
+                # image.save()
+                # bpy.context.scene.render.image_settings.color_depth = '16'
+
+                #Save as 16bit BW
+                scene = bpy.context.scene
+                settings = scene.render.image_settings
+                old_color_depth, old_format, old_color_mode = (settings.color_depth, settings.file_format, settings.color_mode)
+                settings.color_depth = '16'
+                settings.file_format = 'PNG'
+                settings.color_mode = 'BW'
+                # Save with scene
+                image.save_render('C:/Users/test_smart.png', scene = scene)
+                #Reset settings
+                settings.color_depth = old_color_depth
+                settings.file_format = old_format
+                settings.color_mode = old_color_mode
+                print("Exported image")
+                
+                bpy.ops.mesh.landscape_add(subdivision_x=width, subdivision_y=height, mesh_size_x=grid_width*unit_scale, mesh_size_y=grid_width*unit_scale,
+                                            height=0, refresh=True)
+                terrain_obj = bpy.context.active_object
+                heightTex = bpy.data.textures.new('HeightMap', type = 'IMAGE')
+                heightTex.image = image
+
+                terrain_obj.location.x -= grid_width*unit_scale/2
+                terrain_obj.location.y -= grid_width*unit_scale/2
+            
+        if prop_import_mode == "None":
+            return obj
         filenames_node = node.find("PropGrid/FileNames")
         prop_objects = []
         if filenames_node is not None:
             for i, file_node in enumerate(list(filenames_node)):
                 data_path = file_node.text
+                if prop_import_mode == "No Vegetation" and "vegetation" in data_path:
+                    prop_objects.append(None)
+                    continue
                 prop_xml_node = ET.fromstring(f"""
                             <Config>
                                 <ConfigType>PROP</ConfigType>
@@ -1578,11 +1779,125 @@ class IslandFile:
         else:
             print("Island missing PropGrid")
             print(node.find("PropGrid"))
-            
         #delete the blueprint props
         for prop_obj in prop_objects:
+            if prop_obj is None:
+                continue
             bpy.data.objects.remove(prop_obj, do_unlink=True)
         return obj
+
+class BezierCurve():
+    @classmethod
+    def is_valid_bezier_curve_node(cls, node: ET.Element) -> bool:
+        if node.tag != "BezierPath":
+            return False
+        path_node = node.find("Path")
+        if path_node is None:
+            return False
+        curve_node = path_node.find("BezierCurve")
+        if curve_node is None:
+            return False
+        for point_node in list(curve_node):
+            for attribute in list(point_node):
+                if attribute.tag not in ["p", "i", "o"]:
+                    return False
+        return True
+
+    @classmethod
+    def add_blender_object_to_scene(cls, node) -> BlenderObject:
+        curvedata = bpy.data.curves.new(name="Curve", type='CURVE')   
+        curvedata.dimensions = '3D'    
+        obj = bpy.data.objects.new("BezierCurve", curvedata)   
+        bpy.context.scene.collection.objects.link(obj)  
+        polyline = curvedata.splines.new('BEZIER')  
+        
+        path_node = node.find("Path")
+        curve_node = path_node.find("BezierCurve")
+        point_nodes = list(curve_node)
+        num_points = len(point_nodes)
+        polyline.bezier_points.add(num_points-1) 
+    
+        for idx, _ in enumerate(point_nodes):
+            point = polyline.bezier_points[idx]
+            point_node = point_nodes[idx]
+            v = [float(s) for s in get_text_and_delete(point_node, "p", "0,0 0,0 0,0").replace(",", ".").split(" ")]
+            position = (-v[0], -v[2], v[1])
+            point.co = position
+            v = [float(s) for s in get_text_and_delete(point_node, "i", "0,0 0,0 0,0").replace(",", ".").split(" ")]
+            handle_left = (position[0]-v[0], position[1]-v[2], position[2]+v[1])
+            point.handle_left = handle_left
+            v = [float(s) for s in get_text_and_delete(point_node, "o", "0,0 0,0 0,0").replace(",", ".").split(" ")]
+            handle_right = (position[0]-v[0], position[1]-v[2], position[2]+v[1])
+            point.handle_right = handle_right
+            point.handle_left_type = 'FREE'
+            point.handle_right_type = 'FREE'
+        path_node.remove(curve_node)
+        min_node = path_node.find("Minimum")
+        max_node = path_node.find("Maximum")
+        path_node.remove(min_node)
+        path_node.remove(max_node)
+        return obj 
+        
+    @classmethod
+    def xml_to_blender(cls, node: ET.Element, parent_obj = None) -> BlenderObject:
+        """
+        Only supports these curves. No idea what w, u0 stands for in other variants of bezier curves.
+        <BezierPath>
+            <Path>
+                <Minimum>121,90588 5,298042 160,05571</Minimum>
+                <Maximum>128,76202 5,301949 165,46204</Maximum>
+                <BezierCurve>
+                    <None>
+                        <p>127,08328 5,298042 160,76552</p>
+                        <i>-0,19070435 0 -0,15771994</i>
+                        <o>0,19070435 0 0,15771994</o>
+                    </None>
+                    <None>
+                        <p>128,22751 5,298042 161,71184</p>
+                        <i>-0,11701199 0 -0,21806403</i>
+                        <o>0,17704894 0 0,32994914</o>
+                    </None>
+                </BezierCurve>
+            </Path>
+        </BezierPath>
+        """
+        obj = cls.add_blender_object_to_scene(node)
+        set_anno_object_class(obj, cls)
+        obj.dynamic_properties.from_node(node)
+        if parent_obj:
+            obj.parent = parent_obj
+            obj.matrix_parent_inverse = obj.parent.matrix_basis.inverted()
+        return obj
+        
+    @classmethod
+    def blender_to_xml(cls, obj, parent = None, child_map = None):
+        node = obj.dynamic_properties.to_node(ET.Element("None"))
+        curvedata = obj.data
+        spline = curvedata.splines[0]
+        path_node = node.find("Path")
+        curve_node = ET.SubElement(path_node, "BezierCurve")
+        minp = (float("inf"), float("inf"), float("inf"))
+        maxp = (-float("inf"), -float("inf"), -float("inf"))
+        for bezier_point in spline.bezier_points:
+            point_node = ET.SubElement(curve_node, "None")
+            p = bezier_point.co
+            p = (-p[0], p[2], -p[1])
+            minp = (min(p[0], minp[0]), min(p[1], minp[1]), min(p[2], minp[2]))
+            maxp = (max(p[0], maxp[0]), max(p[1], maxp[1]), max(p[2], maxp[2]))
+            i = bezier_point.handle_left
+            i = (-i[0] - p[0], i[2]- p[1], -i[1]- p[2])
+            o = bezier_point.handle_right
+            o = (-o[0]- p[0], o[2]- p[1], -o[1]- p[2])
+            
+            ET.SubElement(point_node, "p").text = ' '.join([format_float(f) for f in p])
+            ET.SubElement(point_node, "i").text = ' '.join([format_float(f) for f in i])
+            ET.SubElement(point_node, "o").text = ' '.join([format_float(f) for f in o])
+        
+        min_node = find_or_create(path_node, "Minimum")
+        max_node = find_or_create(path_node, "Maximum")
+        min_node.text = ' '.join([format_float(f) for f in minp])
+        max_node.text = ' '.join([format_float(f) for f in maxp])
+        return node
 
 
 class AssetsXML():
@@ -1657,6 +1972,71 @@ class GameObject:
         o.empty_display_type = 'ARROWS'   
         return o
     
+    @classmethod 
+    def parent_for_subfile(cls, file_obj) -> BlenderObject:
+        node = ET.fromstring(f"""
+        <None>
+            <guid>0</guid>
+            <ID>{random.randint(-2147483647,2147483647)}</ID>
+            <Variation>0</Variation>
+            <Position>0,0 0,0 0,0</Position>
+            <Direction>3.14159</Direction>
+            <ParticipantID>
+                <id>8</id>
+            </ParticipantID>
+            <QuestObject>
+                <QuestIDs />
+                <ObjectWasVisible>
+                <None>False</None>
+                <None>False</None>
+                </ObjectWasVisible>
+                <OverwriteVisualParticipant />
+            </QuestObject>
+            <Mesh>
+                <Flags>
+                <flags>1</flags>
+                </Flags>
+                <SequenceData>
+                <CurrentSequenceStartTime>100</CurrentSequenceStartTime>
+                </SequenceData>
+                <Orientation>0 0,0 0,0 0,0</Orientation>
+                <Scale>1.0</Scale>
+            </Mesh>
+            <SoundEmitter />
+        </None>
+        """)
+        obj = cls.add_blender_object_to_scene(node)
+        set_anno_object_class(obj, cls)
+        
+        node.find("ID").text = "ID_"+node.find("ID").text
+        mesh_node = node.find("Mesh")
+    
+        location = [float(s) for s in get_text_and_delete(node, "Position", "0,0 0,0 0,0").replace(",", ".").split(" ")]
+        rotation = [1.0, 0.0, 0.0, 0.0] 
+        scale    = [1.0, 1.0, 1.0]
+        if mesh_node is not None:
+            rotation = [float(s) for s in get_text_and_delete(mesh_node, "Orientation", "1,111 0,0 0,0 0,0").replace(",", ".").split(" ")]
+            rotation = [rotation[3], rotation[0], rotation[1], rotation[2]] #xzyw -> wxzy
+            scale = [float(s) for s in get_text_and_delete(mesh_node, "Scale", "1,0 1,0 1,0").replace(",", ".").split(" ")]
+            if len(scale) == 1:
+                scale = [scale[0], scale[0], scale[0]]
+        
+        transform = Transform(location, rotation, scale, anno_coords = True)
+        transform.apply_to(obj)
+
+        obj.dynamic_properties.from_node(node)
+        
+        
+        obj.name = "GameObject_" + str(file_obj.name.replace("FILE_", ""))
+        obj.location = file_obj.location
+        obj.rotation_quaternion = file_obj.rotation_quaternion
+        obj.scale = file_obj.scale
+        file_obj.parent = obj
+        file_obj.location = (0,0,0)
+        file_obj.rotation_quaternion = (1, 0,0,0)
+        file_obj.scale = (1,1,1)
+        return obj
+        
     @classmethod
     def xml_to_blender(cls, node: ET.Element, assetsXML, parent_obj = None) -> BlenderObject:
         """
@@ -1688,6 +2068,7 @@ class GameObject:
                 <Scale>1.5</Scale>
             </Mesh>
             <SoundEmitter />
+            <BezierPath/>
         </None>
         """
         obj = cls.add_blender_object_to_scene(node)
@@ -1711,6 +2092,11 @@ class GameObject:
         
         transform = Transform(location, rotation, scale, anno_coords = True)
         transform.apply_to(obj)
+        
+        bezier_node = node.find("BezierPath")
+        if bezier_node is not None:
+            if BezierCurve.is_valid_bezier_curve_node(bezier_node):
+                bezier_obj = BezierCurve.xml_to_blender(bezier_node, obj)
 
         obj.dynamic_properties.from_node(node)
         
@@ -1739,7 +2125,7 @@ class GameObject:
         return obj
     
     @classmethod
-    def blender_to_xml(cls, obj):
+    def blender_to_xml(cls, obj, parent = None, child_map = None):
         node = obj.dynamic_properties.to_node(ET.Element("None"))
         node.find("ID").text = node.find("ID").text.replace("ID_", "")
         
@@ -1756,28 +2142,93 @@ class GameObject:
                 ET.SubElement(mesh_node, "Scale").text =  scale[0].replace(".", ",")
         else:
             ET.SubElement(mesh_node, "Scale").text = ' '.join(scale).replace(".", ",")
-
+        for child in obj.children:
+            if get_anno_object_class(child) == BezierCurve:
+                bezier_node = BezierCurve.blender_to_xml(child, node, child_map)
+                node.append(bezier_node)
         return node
+    
+    
+
 class IslandGamedataFile:
     @classmethod
     def add_blender_object_to_scene(cls, node) -> BlenderObject:
         file_obj = add_empty_to_scene()  
         return file_obj
-    
+    @classmethod
+    def create_maps(cls, node: ET.Element):
+        bit_map_nodes = [
+            node.find("./GameSessionManager/WorldManager/Water"),
+            node.find("./GameSessionManager/WorldManager/RiverGrid"),
+        ]
+        for map_node in bit_map_nodes:
+            if map_node is None:
+                continue
+            width = int(get_text(map_node, "x", "0"))
+            height = int(get_text(map_node, "y", "0"))
+            byte_data = [int(i) for i in get_text(map_node, "bits").split(" ")]
+            data = [0] * (width*height)
+            for i, byte in enumerate(byte_data):
+                bytestring = "{0:08b}".format(byte)[::-1]
+                for j, bit in enumerate(bytestring):
+                    data[i*8 + j] = int(bit)
+            image = bpy.data.images.new(map_node.tag, width=width, height=height)
+            pixels = [None] * width * height
+            np_array = np.zeros((width,height,4), dtype = np.float16)
+            for x, row in enumerate(np_array):
+                for y, pix in enumerate(row):
+                    index = ((x * np_array.shape[0]) + y)
+                    h = data[index]
+                    pix[0] = h
+                    pix[1] = h
+                    pix[2] = h
+                    pix[3] = 1.0
+            image.pixels = np_array.ravel()
+            image.filepath_raw = f"C:/Users/{map_node.tag}.png"
+            image.file_format = 'PNG'
+            image.save()
+        val_map_nodes = [
+            node.find("./GameSessionManager/WorldManager/EnvironmentGrid/EnvironmentGRid"),
+            node.find("./GameSessionManager/AreaIDs"), #int16, but still looks somewhat wrong.
+        ]
+        for map_node in val_map_nodes:
+            if map_node is None:
+                continue
+            width = int(get_text(map_node, "x", "0"))
+            height = int(get_text(map_node, "y", "0"))
+            data = [int(i) for i in get_text(map_node, "val").split(" ")]
+            print(width*height, len(data), len(data)/width/height)
+            image = bpy.data.images.new(map_node.tag, width=width, height=height)
+            pixels = [None] * width * height
+            np_array = np.zeros((width,height,4), dtype = np.float16)
+            for x, row in enumerate(np_array):
+                for y, pix in enumerate(row):
+                    index = (x * np_array.shape[0]) + y
+                    upper_byte = data[index] & (1<<16)-(1<<8)
+                    lower_byte = data[index] & (1<<8)
+                    pix[0] = upper_byte / 255.0
+                    pix[1] = lower_byte / 255.0
+                    pix[2] = 0.0
+                    pix[3] = 1.0
+            image.pixels = np_array.ravel()
+            image.filepath_raw = f"C:/Users/{map_node.tag}.png"
+            image.file_format = 'PNG'
+            image.save()
+            
     @classmethod
     def xml_to_blender(cls, node: ET.Element, assetsXML) -> BlenderObject:
         obj = cls.add_blender_object_to_scene(node)
         obj["islandgamedataxml"] = ET.tostring(node)
         obj.name = "ISLAND_GAMEDATA_FILE"
         set_anno_object_class(obj, cls)
-        
+        #create_maps(node)
         
         objects_nodes = node.findall("./GameSessionManager/AreaManagerData/None/Data/Content/AreaObjectManager/GameObject/objects")
         for c, objects_node in enumerate(objects_nodes):
             for i, obj_node in enumerate(objects_node):
                 print(f"Container {c+1} / {len(objects_nodes)}; Object {i+1} / {len(objects_node)},")
                 GameObject.xml_to_blender(obj_node, assetsXML)
-                
+    
     @classmethod
     def blender_to_xml(cls, obj, randomize_ids = False):
         """Only exports the prop grid. Not the heighmap or the prop FileNames."""
@@ -1792,7 +2243,6 @@ class IslandGamedataFile:
                 obj_id = get_text(obj_node, "ID")
                 objects_node_by_id[obj_id] = objects_node
                 objects_node.remove(obj_node)
-        
         for obj in bpy.data.objects:
             if get_anno_object_class(obj) != GameObject:
                 continue
@@ -1812,7 +2262,7 @@ anno_object_classes = [
     NoAnnoObject, MainFile, Model, Cf7File,
     SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup,
     Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig,SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, Material, IfoFile, Spline, IslandFile, PropGridInstance,
-    IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequences, AnimationSequence, Track, TrackElement, IfoMeshHeightmap,
+    IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequences, AnimationSequence, Track, TrackElement, IfoMeshHeightmap,BezierCurve,
 ]
 
 def str_to_class(classname):
@@ -1834,6 +2284,7 @@ def register():
     bpy.types.Object.anno_object_class_str = bpy.props.EnumProperty(name="Anno Object Class", description = "Determines the type of the object.",
                                                                 items = [(cls.__name__, cls.__name__, cls.__name__) for cls in anno_object_classes]
                                                                 , default = "NoAnnoObject")
+    
     #CollectionProperty(type = AnnoImageTextureProperties)
 
 def unregister():

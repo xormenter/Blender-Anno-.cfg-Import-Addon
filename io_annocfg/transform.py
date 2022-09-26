@@ -120,17 +120,17 @@ class Transform:
         
         self.anno_coords
     
-    def mirror_mesh(self, object):
+    @classmethod
+    def mirror_mesh(self, obj):
         if not IO_AnnocfgPreferences.mirror_models():
             return
-        if not object.data or not hasattr(object.data, "vertices"):
+        if not obj.data or not hasattr(obj.data, "vertices"):
             return
-        for v in object.data.vertices:
+        for v in obj.data.vertices:
             v.co.x *= -1.0
-            
         #Inverting normals for import AND Export they are wrong because of scaling on the x axis.
         #Warn people that this will break exports from .blend files made with an earlier version!!!
-        mesh = object.data
+        mesh = obj.data
         bm = bmesh.new()
         bm.from_mesh(mesh) # load bmesh
         for f in bm.faces:
@@ -143,7 +143,7 @@ class Transform:
     def apply_to(self, object):
         if self.anno_coords:
             self.convert_to_blender_coords()
-        self.mirror_mesh(object)
+        #self.mirror_mesh(object)
         object.location = self.location
         if not self.euler_rotation:
             object.rotation_mode = "QUATERNION"

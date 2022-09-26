@@ -17,7 +17,7 @@
 # ##### END GPL LICENSE BLOCK #####
 import bpy
 from bpy.types import AddonPreferences, Scene
-from bpy.props import StringProperty, EnumProperty, BoolProperty
+from bpy.props import StringProperty, EnumProperty, BoolProperty, FloatProperty
 
 from pathlib import Path
 
@@ -72,6 +72,25 @@ class IO_AnnocfgPreferences(AddonPreferences):
         description = "Turns sequences into blender objects and resolves ModelID (and ParticleID) references to their respective blender object. Allows easier handling of animated files and prevents errors coming from a reordering of the models when exporting. ",
         default = True
     )
+    cfg_cache_probability_float : FloatProperty( # type: ignore
+        name = "Cfg Cache Probability",
+        description = "Caches .cfg files in a specific library folder to allow faster retrieval. Set to 0 to disable and to 1 to cache everything. Use a value in between to only cache frequently used .cfgs (in expectation)",
+        default = 1.0,
+        min = 0.0,
+        max = 1.0,
+    )
+    cfg_cache_loading_enabled_bool : BoolProperty( # type: ignore
+        name = "Cfg Cache Loading Enabled",
+        description = "Allow to load cached .cfgs",
+        default = True,
+    )
+    cfg_cache_path : StringProperty( # type: ignore
+        name = "Path to cfg cache",
+        description = "Select a Path for the cfg Cache. Sadly it does not work great as an asset library, because it lacks preview images...",
+        subtype='FILE_PATH',
+        default = "C:\\Users\\Public\\Anno\\CfgCache",
+    )
+    
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "path_to_rda_folder")
@@ -82,7 +101,13 @@ class IO_AnnocfgPreferences(AddonPreferences):
         layout.prop(self, "mirror_models_bool")
         layout.prop(self, "enable_splines")
         layout.prop(self, "sequences_as_blender_objects")
+        layout.prop(self, "cfg_cache_loading_enabled_bool")
+        layout.prop(self, "cfg_cache_probability_float")
+        layout.prop(self, "cfg_cache_path")
 
+    @classmethod
+    def get_cfg_cache_path(cls):
+        return Path(bpy.context.preferences.addons[__package__].preferences.cfg_cache_path)
     @classmethod
     def get_path_to_rda_folder(cls):
         return Path(bpy.context.preferences.addons[__package__].preferences.path_to_rda_folder)
@@ -107,6 +132,12 @@ class IO_AnnocfgPreferences(AddonPreferences):
     @classmethod
     def turn_sequences_into_blender_objects(cls):
         return bpy.context.preferences.addons[__package__].preferences.sequences_as_blender_objects
+    @classmethod
+    def cfg_cache_probability(cls):
+        return bpy.context.preferences.addons[__package__].preferences.cfg_cache_probability_float
+    @classmethod
+    def cfg_cache_loading_enabled(cls):
+        return bpy.context.preferences.addons[__package__].preferences.cfg_cache_loading_enabled_bool
 
 classes = (
     IO_AnnocfgPreferences,
