@@ -23,7 +23,7 @@ from .transform import Transform
 from .material import Material, ClothMaterial
 from .feedback_ui import FeedbackConfigItem, GUIDVariationListItem, FeedbackSequenceListItem
 from . import feedback_enums
-import numpy as np
+# import numpy as np
 
 def convert_to_glb(fullpath: Path):
     rdm4_path = IO_AnnocfgPreferences.get_path_to_rdm4()
