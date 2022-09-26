@@ -75,14 +75,14 @@ class IO_AnnocfgPreferences(AddonPreferences):
     cfg_cache_probability_float : FloatProperty( # type: ignore
         name = "Cfg Cache Probability",
         description = "Caches .cfg files in a specific library folder to allow faster retrieval. Set to 0 to disable and to 1 to cache everything. Use a value in between to only cache frequently used .cfgs (in expectation)",
-        default = 1.0,
+        default = 0.0,
         min = 0.0,
         max = 1.0,
     )
     cfg_cache_loading_enabled_bool : BoolProperty( # type: ignore
         name = "Cfg Cache Loading Enabled",
         description = "Allow to load cached .cfgs",
-        default = True,
+        default = False,
     )
     cfg_cache_path : StringProperty( # type: ignore
         name = "Path to cfg cache",
