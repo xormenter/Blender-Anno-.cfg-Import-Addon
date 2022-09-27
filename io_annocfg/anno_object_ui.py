@@ -12,10 +12,24 @@ from collections import defaultdict
 from .prefs import IO_AnnocfgPreferences
 from .utils import *
 from . import feedback_enums
+from . import helpstrings
 from .material import Material, ClothMaterial
 from .anno_objects import get_anno_object_class,anno_object_classes, set_anno_object_class, MainFile, Model, Cf7File, SubFile, Decal, Propcontainer, Prop, Particle, IfoPlane, Sequence, DummyGroup,\
     Cf7DummyGroup, Cf7Dummy, FeedbackConfig, SimpleAnnoFeedbackEncodingObject, ArbitraryXMLAnnoObject, Light, Cloth, IfoFile, Spline, IslandFile, PropGridInstance, \
     IslandGamedataFile, GameObject, AnimationsNode, Animation, AnimationSequence, AnimationSequences, Track, TrackElement, IfoMeshHeightmap, NoAnnoObject, Dummy, BezierCurve, AssetsXML
+
+
+class XMLTooltip(Operator):
+    """Adds a tooltip for dynamic xml content"""
+    bl_idname = "wm.xmltooltiphelper"
+    bl_label = "Help Entry:"
+    
+    
+    arg : StringProperty(name = "Help:", default = "Unknown")
+
+    @classmethod
+    def description(cls, context, properties):
+        return properties.arg
 
 class BoolPropertyGroup(PropertyGroup):
     tag : StringProperty(name = "", default = "SomeBool") # type: ignore
@@ -334,7 +348,11 @@ class XMLPropertyGroup(PropertyGroup):
                 split.alignment = "RIGHT"
                 split.label(text = item.tag)
                 split.prop(item, "value")
-        
+                helpstr = helpstrings.help_for_key(item.tag)
+                if helpstr != "UNKNOWN":
+                    row.operator('wm.xmltooltiphelper', icon ="QUESTION", text = "").arg = helpstr
+                else:
+                    row.operator('wm.xmltooltiphelper', icon ="HELP", text = "").arg = helpstr
         for item in self.dynamic_properties:
             if item.deleted:
                 continue
@@ -1052,6 +1070,7 @@ classes = [
     AddFeedbackConfigFromGroup,
     PT_AnnoXMLPastePropertyPanel,
     PasteFromClipboardOperator,
+    XMLTooltip,
 ]
 def register():
     bpy.types.Scene.anno_xml_import_object_class = EnumProperty( # type: ignore
