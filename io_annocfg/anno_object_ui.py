@@ -375,8 +375,8 @@ class PT_AnnoScenePropertyPanel(Panel):
     def draw(self, context):
         layout = self.layout
         col = layout.column()
-        
         col.prop(context.scene, "anno_mod_folder")
+        col.prop(context.scene, "load_animated_feedback")
 
 class ConvertCf7DummyToDummy(Operator):
     bl_idname = "object.convertcf7dummy"
@@ -600,7 +600,9 @@ class FixDummyName(Operator):
 
 #https://devtalk.blender.org/t/how-to-repeat-a-cyclic-animation-of-an-object-armature-from-command-line-with-blender-api/15523/6
 def transfer_action_to_nla_tracks(obj, strip_name='new_strip', start_frame=1):
-
+    if obj.type != "ARMATURE":
+        print(f"Warning, failed to load one animation.")
+        return None
     new_track = obj.animation_data.nla_tracks.new()
     new_strip = new_track.strips.new(strip_name, start_frame, obj.animation_data.action.copy())
 
@@ -621,20 +623,22 @@ def load_animations_for_model(obj):
         
         for i, anim_node in enumerate(list(animations_node)):
             ET.SubElement(anim_node, "ModelFileName").text = get_text(node, "FileName")
+            ET.SubElement(anim_node, "UnanimatedModelName").text = obj.name
             ET.SubElement(anim_node, "AnimationIndex").text = str(i)
             Animation.xml_to_blender(anim_node, animations_container)
         obj.dynamic_properties.remove("Animations")
         
-        for anim_obj in animations_container.children:
-            for armature in anim_obj.children:
-                for anim_mesh in armature.children:
-                    for m_idx, material in enumerate(obj.data.materials):
-                        if m_idx >= len(anim_mesh.data.materials):
-                            break
-                        anim_mesh.data.materials[m_idx] = material 
-                # Since f.e. walk animations are quite short, let's repeat everything so it looks decent.
-                new_strip = transfer_action_to_nla_tracks(armature, strip_name='new_strip', start_frame=1)
-                repeat_strip_from_command_line(new_strip, 500)
+        # for anim_obj in animations_container.children:
+        #     for armature in anim_obj.children:
+        #         for anim_mesh in armature.children:
+        #             for m_idx, material in enumerate(obj.data.materials):
+        #                 if m_idx >= len(anim_mesh.data.materials):
+        #                     break
+        #                 anim_mesh.data.materials[m_idx] = material 
+        #         # Since f.e. walk animations are quite short, let's repeat everything so it looks decent.
+        #         new_strip = transfer_action_to_nla_tracks(armature, strip_name='new_strip', start_frame=1)
+        #         if new_strip is not None:
+        #             repeat_strip_from_command_line(new_strip, 500)
     
 
 

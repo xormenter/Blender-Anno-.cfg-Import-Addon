@@ -19,10 +19,10 @@ from typing import Tuple, List, NewType, Any, Union, Dict, Optional, TypeVar, Ty
 from . import feedback_enums
 from .simple_anno_feedback_encoding import SimpleAnnoFeedbackEncoding
 from .prefs import IO_AnnocfgPreferences
-from .anno_objects import get_anno_object_class, anno_object_classes, Transform, AnnoObject, MainFile, Model, SimpleAnnoFeedbackEncodingObject, \
+from .anno_objects import get_anno_object_class, set_anno_object_class, anno_object_classes, Transform, AnnoObject, MainFile, Model, SimpleAnnoFeedbackEncodingObject, \
     SubFile, Decal, Propcontainer, Prop, Particle, IfoCube, IfoPlane, Sequence, DummyGroup, ArbitraryXMLAnnoObject, Material, \
     Dummy, Cf7DummyGroup, Cf7Dummy, FeedbackConfig, Light, IfoFile, Cf7File, IslandFile, PropGridInstance, IslandGamedataFile, AssetsXML,\
-    Animation, Cloth, BezierCurve, GameObject, AnimationsNode, AnimationSequences, AnimationSequence, Track, TrackElement, IfoMeshHeightmap,BezierCurve,Spline
+    Animation, Cloth, BezierCurve, GameObject, AnimationsNode, AnimationSequences, AnimationSequence, Track, TrackElement, IfoMeshHeightmap,BezierCurve,Spline, NoAnnoObject
 
 
 from .utils import data_path_to_absolute_path, to_data_path
@@ -648,7 +648,12 @@ class ExportAnnoModelOperator(Operator, ExportHelper):
 
     def execute(self, context):
         self.obj = context.active_object
-        if not self.obj or not get_anno_object_class(self.obj) in [Model, Cloth]:
+        cls = get_anno_object_class(self.obj)
+        if cls == NoAnnoObject:
+            set_anno_object_class(self.obj, Model)
+            self.report({'INFO'}, 'Object is just a standard blender object, converting to model.')
+            cls = Model
+        if not self.obj or not cls in [Model, Cloth]:
             self.report({'ERROR_INVALID_CONTEXT'}, f"MODEL_ Object needs to be selected.")
             return {'CANCELLED'}
  
@@ -727,12 +732,19 @@ class ExportAnnoModelOperator(Operator, ExportHelper):
     def poll(cls, context):
         if not context.active_object:
             return False
-        return get_anno_object_class(context.active_object) in [Model, Cloth]
+        return get_anno_object_class(context.active_object) in [Model, Cloth, NoAnnoObject]
     
     def invoke(self, context, _event):
         import os
         if not self.filepath and context.active_object is not None:
-            path = data_path_to_absolute_path(context.active_object.dynamic_properties.get_string("FileName"))
+            path = data_path_to_absolute_path(context.active_object.dynamic_properties.get_string("FileName", "data/unknown.rdm"))
+            name = context.active_object.name.replace("MODEL_", "").strip()
+            components = name.split(".")
+            if len(components) > 1 and components[-1].isnumeric():
+                components[-1] = ""
+                name = ".".join(components).strip(".")
+            name = re.sub(r"_lod[0-9].[0-9]+(_LOD[0-9])", lambda m: m.group(1).lower(), name)
+            path = Path(path.parent, name + ".rdm")
             self.filepath = str(path)
             
             context.window_manager.fileselect_add(self)

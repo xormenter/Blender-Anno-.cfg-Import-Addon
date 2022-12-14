@@ -69,16 +69,114 @@ def convert_animation_to_glb(model_fullpath, animation_fullpath: Path):
         subprocess.call(f"\"{rdm4_path}\" -i \"{model_fullpath}\" -sam \"{animation_fullpath}\" --force --outdst \"{out_filename}\"", shell = True)
 
 
-def import_animated_model_to_scene(model_data_path: Union[str, Path, None], animation_data_path) -> BlenderObject:
+
+def try_loading_from_animation_library(data_path, last_modified):
+    from datetime import datetime
+    libpath = IO_AnnocfgPreferences.get_cfg_cache_path()
+    p = Path(libpath, str(data_path) + ".blend")
+    print("Looking for path ", p , " in cache")
+    if p.exists():
+        cache_last_modified = p.stat().st_mtime
+        if cache_last_modified < last_modified:
+            print(f"Cache Invalidation for {p}, modified {data_path} at {datetime.fromtimestamp(last_modified)}, last cache update at {datetime.fromtimestamp(cache_last_modified)}")
+            p.unlink()
+            return None
+        
+        with bpy.data.libraries.load(str(p)) as (data_from, data_to):
+            data_to.collections = data_from.collections
+        for new_coll in data_to.collections:
+            if data_path.name.split(".")[0][:28] in new_coll.name:
+                instance = bpy.data.objects.new(new_coll.name, None)
+                instance.instance_type = 'COLLECTION'
+                instance.instance_collection = new_coll
+                bpy.context.scene.collection.objects.link(instance)
+                print(f"Loaded {data_path.name} from lib")
+                return instance
+        print(f"Warning: Failed to load {data_path.name} from existing cache file {p}")
+    print("Cache file does not exist.")
+    return None
+
+def cache_animation_to_library(file_obj, data_path):
+    print(f"Caching {data_path} in library")
+    libpath = IO_AnnocfgPreferences.get_cfg_cache_path()
+    if not libpath.exists():
+        print(f"Warning, invalid cfg cache path {libpath}")
+        return 
+    p = Path(libpath, Path(data_path).parent)
+    p.mkdir(parents=True, exist_ok=True)
+    
+    
+    collection = bpy.data.collections.new(file_obj.name)
+    bpy.context.scene.collection.children.link(collection)
+    
+    collection.asset_mark()
+    collection.asset_data.tags.new("animation")
+    collection.asset_data.description = str(data_path)
+    for directory in PurePath(data_path).parts[:-1]:
+        if directory not in ["graphics", "data"]:
+            collection.asset_data.tags.new(directory)
+    bpy.ops.ed.lib_id_generate_preview({"id": collection})
+    
+    
+    recursive_add_to_collection(file_obj, collection)
+    objects = []
+    for obj in collection.all_objects:
+        objects.append(obj)
+    objects.append(collection)
+    filename = f"{Path(data_path).name}.blend"
+    filepath = Path(p, filename)
+    bpy.data.libraries.write(str(filepath), set(objects), fake_user=True)
+    bpy.context.scene.collection.children.unlink(collection)
+    bpy.data.collections.remove(collection)
+    
+#https://devtalk.blender.org/t/how-to-repeat-a-cyclic-animation-of-an-object-armature-from-command-line-with-blender-api/15523/6
+# def transfer_action_to_nla_tracks(obj, strip_name='new_strip', start_frame=1):
+#     print(obj, obj.name, obj.animation_data, obj.animation_data.action)
+#     if obj.type != "ARMATURE":
+#         print(f"Warning, failed to load one animation.")
+#         return None
+#     new_track = obj.animation_data.nla_tracks.new()
+#     print("copy of ", obj.animation_data.action)
+#     new_strip = new_track.strips.new(strip_name, start_frame, obj.animation_data.action.copy())
+
+#     bpy.data.actions.remove(obj.animation_data.action, do_unlink=True)
+
+#     return new_strip
+# def repeat_strip_from_command_line(strip, n_repetitions):
+#     strip.repeat = n_repetitions
+
+
+def extend_cyclic_animation(obj, n_repetitions_after=0, n_repetitions_before=0):
+    if obj.animation_data is not None and obj.animation_data.action is not None:
+        for fcurves_f in obj.animation_data.action.fcurves:
+            new_modifier = fcurves_f.modifiers.new(type='CYCLES')
+            # default n_repetitions_after is 0 which means 
+            # infinite repetitions after the end of the fcurves_f
+            new_modifier.cycles_after = n_repetitions_after
+            # default n_repetitions_before is 0 which means 
+            # infinite repetitions before the start of the fcurves_f
+            new_modifier.cycles_before = n_repetitions_before
+
+
+
+def import_animated_model_to_scene(model_data_path: Union[str, Path, None], animation_data_path, unanimated_model) -> BlenderObject:
     print(model_data_path, animation_data_path)
     if not model_data_path or not animation_data_path:
         print("Invalid data path for animation or model")
         return add_empty_to_scene()
+    
     model_fullpath = data_path_to_absolute_path(model_data_path)
     fullpath = data_path_to_absolute_path(animation_data_path)
     if fullpath is None:
         return None
     combined_path = Path(model_fullpath.parent, Path(model_fullpath.stem + "_a_"+Path(animation_data_path).stem + ".glb"))
+    combined_data_path = Path(Path(model_data_path).parent, Path(Path(model_data_path).stem + "_a_"+Path(animation_data_path).stem + ".anim"))
+    last_modified = fullpath.stat().st_mtime
+    if IO_AnnocfgPreferences.cfg_cache_loading_enabled():
+            file_obj = try_loading_from_animation_library(combined_data_path, last_modified)
+            if file_obj is not None:
+                return file_obj
+    
     if not combined_path.exists():
             
         out_fullpath = Path(fullpath.parent, Path("out.glb"))
@@ -96,8 +194,22 @@ def import_animated_model_to_scene(model_data_path: Union[str, Path, None], anim
         return None
     ret = bpy.ops.import_scene.gltf(filepath=str(combined_path))
     obj = bpy.context.active_object
-    print(obj.name, obj.type)
     Transform.mirror_mesh(obj)
+    
+    obj.name = f"ARMATURE_{(Path(model_data_path).stem +'_a_'+Path(animation_data_path).stem)[:28] + '.anim'}"
+    if unanimated_model is not None:
+        for anim_mesh in obj.children:
+            for m_idx, material in enumerate(unanimated_model.data.materials):
+                if m_idx >= len(anim_mesh.data.materials):
+                    break
+                anim_mesh.data.materials[m_idx] = material 
+    # Since f.e. walk animations are quite short, let's repeat everything so it looks decent.
+    
+    extend_cyclic_animation(obj)
+    
+    if random.random() < IO_AnnocfgPreferences.cfg_cache_probability():
+        cache_animation_to_library(obj, combined_data_path)
+    
     return obj
 
 def add_empty_to_scene(empty_type: str = "SINGLE_ARROW") -> BlenderObject:
@@ -523,7 +635,11 @@ class Animation(AnnoObject):
         
         model_data_path = get_text_and_delete(node, "ModelFileName")
         anim_data_path = get_text(node, "FileName")
-        imported_obj = import_animated_model_to_scene(model_data_path, anim_data_path)
+        unanimated_model_name = get_text_and_delete(node, "UnanimatedModelName", "")
+        unanimated_model = None
+        if unanimated_model_name != "":
+            unanimated_model = bpy.data.objects[unanimated_model_name]
+        imported_obj = import_animated_model_to_scene(model_data_path, anim_data_path, unanimated_model)
         
         if imported_obj is not None:
             imported_obj.parent = controller_obj
@@ -690,7 +806,7 @@ class SubFile(AnnoObject):
         
         last_modified = fullpath.stat().st_mtime
         
-        if IO_AnnocfgPreferences.cfg_cache_loading_enabled(): #ToDo: Remove True here!!!
+        if IO_AnnocfgPreferences.cfg_cache_loading_enabled():
             file_obj = cls.try_loading_from_library(data_path, last_modified)
             if file_obj is not None:
                 return file_obj

@@ -277,6 +277,9 @@ def load_sequence(obj, selected_sequence_id):
             sequence_id = int(get_text(seq_node, "SequenceID"))
             sequence_id = feedback_enums.NAME_BY_SEQUENCE_ID.get(sequence_id, str(sequence_id))
             if selected_sequence_id == sequence_id:
+                
+                if bpy.context.scene.load_animated_feedback == False:
+                    return {"WARNING"}, "FeedbackUnit Animations disabled."
                 bpy.context.view_layer.objects.active = subfile_seq
                 bpy.ops.object.show_model()
                 bpy.ops.object.show_sequence()
@@ -359,18 +362,29 @@ class FEEDBACK_OT_LoadFeedbackUnit(Operator):
         name = item.guid
         guid = feedback_enums.full_guids_by_name.get(name, name)
         cfg = feedback_enums.cfg_by_guid[guid]
-        
-        unit_obj = self.import_cfg_file(data_path_to_absolute_path(cfg), "FeedbackUnit_"+name)
+        load_animations = bpy.context.scene.load_animated_feedback
+        # unit_obj = self.import_cfg_file(data_path_to_absolute_path(cfg), "FeedbackUnit_"+name)
+        unit_obj = self.import_cfg_file(cfg,  "FeedbackUnit_"+name)
         bpy.context.view_layer.objects.active = unit_obj
+        bpy.context.active_object.select_set(True)
         
-        #If the model was loaded from cache, it only is an instanced collection
-        if unit_obj.instance_collection is not None:
-            print("Loaded feedback unit from cache, making it real.")
-            bpy.ops.object.make_hierarchical_collection_instance_real()
-        
-        bpy.ops.object.load_all_animations()
-        # bpy.context.view_layer.objects.active = unit_obj
-        # bpy.ops.object.ShowSequence()
+        if load_animations:
+            #If the model was loaded from cache, it only is an instanced collection
+            if unit_obj.instance_collection is not None:
+                print("Loaded feedback unit from cache, making it real.")
+                # bpy.ops.object.make_hierarchical_collection_instance_real()
+                bpy.ops.object.duplicates_make_real(use_base_parent=True, use_hierarchy=True)
+                new_obj = None
+                for child in unit_obj.children:
+                    child.parent = obj.parent
+                    new_obj = child
+                bpy.data.objects.remove(unit_obj, do_unlink=True)
+                unit_obj = new_obj
+                
+            bpy.context.view_layer.objects.active = unit_obj
+            bpy.ops.object.load_all_animations()
+            # bpy.context.view_layer.objects.active = unit_obj
+            # bpy.ops.object.ShowSequence()
         
         obj.feedback_unit = unit_obj
         
@@ -381,19 +395,23 @@ class FEEDBACK_OT_LoadFeedbackUnit(Operator):
         bpy.context.view_layer.objects.active = obj
         
         return{'FINISHED'}
-    
-    def import_cfg_file(self, absolute_path, name): 
-        if not absolute_path.exists():
-            self.report({'INFO'}, f"Missing file: {absolute_path}")
-            return
-        tree = ET.parse(absolute_path)
-        root = tree.getroot()
-        if root is None:
-            return
-        
-        file_obj = anno_objects.MainFile.xml_to_blender(root)
-        file_obj.name = name
-        
+
+    def import_cfg_file(self, path, name): 
+        subfile_node = ET.fromstring(f"""
+                    <Config>
+                        <FileName>{path}</FileName>
+                        <ConfigType>FILE</ConfigType>
+                        <IncludingAnimations>True</IncludingAnimations>
+                    </Config>
+                """)
+        subfile_obj = anno_objects.SubFile.xml_to_blender(subfile_node)
+        file_obj = subfile_obj
+        if len(subfile_obj.children) == 1:
+            file_obj = subfile_obj.children[0]
+        else:
+            self.report({"ERROR"}, f"Could not load {path} properly.")
+        subfile_obj.name = name
+        bpy.data.objects.remove(subfile_obj, do_unlink=True)
         return file_obj
     
 def get_dummy_index(dummy):
@@ -617,7 +635,10 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     
-    
+    bpy.types.Scene.load_animated_feedback = BoolProperty( # type: ignore
+        name='Load Animated Feedback',
+        description='If true, feedback units will be loaded with animations. Otherwise, only their model will be loaded. The latter is much faster (but less useful).',
+        default = True)
 
     bpy.types.Object.feedback_sequence_list = CollectionProperty(type = FeedbackSequenceListItem)
     bpy.types.Object.feedback_sequence_list_index = IntProperty(name = "Index for feedback_sequence_list",
@@ -635,6 +656,7 @@ def register():
 
 def unregister():
 
+    del bpy.types.Scene.load_animated_feedback
     del bpy.types.Object.feedback_sequence_list
     del bpy.types.Object.feedback_sequence_list_index
     

@@ -500,6 +500,7 @@ class Material:
             texture_node.location.y -= i * positioning_unit[1] - positioning_offset[1]
 
             texture_node.anno_properties.enabled = self.texture_enabled[texture_name]
+            texture_node.mute = not self.texture_enabled[texture_name]
             extension = texture_path.suffix
             if extension not in [".png", ".psd"]:
                 if texture_path != Path(""):
