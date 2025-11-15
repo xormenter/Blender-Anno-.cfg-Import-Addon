@@ -1,8 +1,11 @@
-# Blender-Anno-.cfg-Import/Export-Addon
+# Blender-Anno1800-.cfg-Import/Export-Addon
 Allows you to import from Anno (1800) .cfg files, make changes and export it to .cfg again.
 Automatically positions all models, props, particles, decals, subfiles, ifo-blockers, and cf7 blockers in the scene.
 When used with the rdm4 converter and texconv, it will automatically convert .rdm to .glb and .dds to .png for importing. Same goes for .fc files and the AnnoFCConverter. It also has a export to .rda option for models.
 This means that if you have all those tools, you don't have to convert anything manually and can edit everything directly in Blender.
+# Important notice
+For Anno 117, please use this version: https://github.com/anno-mods/Blender-Anno-117
+This repo is discontinued, please go to https://github.com/anno-mods/Blender-Anno-1800 for a better version for Anno 1800.
 
 # Requirements
 - Blender **3(.2)** https://www.blender.org/
