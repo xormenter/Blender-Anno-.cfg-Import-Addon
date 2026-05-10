@@ -28,7 +28,14 @@ from .utils import data_path_to_absolute_path, strip_invalid_brackets, to_data_p
 
 def parseStrippedXML(absolute_path):
     stripped = strip_invalid_brackets(absolute_path)
-    tree = ET.parse(io.StringIO(stripped))
+    try:
+        tree = ET.parse(io.StringIO(stripped))
+    except ET.ParseError as error:
+        position = error.position[1]
+        invalidInput = stripped[max(0, position- 10):min(len(stripped)-10, position+10)]
+        print(f"Could not parse {absolute_path}: '{invalidInput}' at token '{stripped[position]}'")
+        raise error
+        
     return tree
 
 class ExportAnnoFc(Operator, ExportHelper):
