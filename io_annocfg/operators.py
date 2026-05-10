@@ -32,7 +32,7 @@ def parseStrippedXML(absolute_path):
         tree = ET.parse(io.StringIO(stripped))
     except ET.ParseError as error:
         position = error.position[1]
-        invalidInput = stripped[max(0, position- 10):min(len(stripped)-10, position+10)]
+        invalidInput = stripped[max(0, position- 10):min(len(stripped)-1, position+10)]
         print(f"Could not parse {absolute_path}: '{invalidInput}' at token '{stripped[position]}'")
         raise error
         
